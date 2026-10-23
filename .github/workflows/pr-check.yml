@@ -1,0 +1,32 @@
+name: PR lightweight verification
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate JavaScript and JSON
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check extension/background.js
+          node --check extension/content.js
+          node --check extension/problem-context.js
+          node --check extension/popup.js
+          node --check bridge/main.cjs
+          node -e "for (const x of ['extension/manifest.json','bridge/sea-config.json']) JSON.parse(require('fs').readFileSync(x))"
+      - name: Unit and integration mock tests
+        run: node --test tests/*.mjs
+      - name: Confirm no legacy pairing / localhost privileged endpoint
+        shell: bash
+        run: |
+          if grep -R -n -E '(onco_bridge_token|127\.0\.0\.1:18744|PAIR_CHATGPT_BRIDGE)' extension; then exit 1; fi

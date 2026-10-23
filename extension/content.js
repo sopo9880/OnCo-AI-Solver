@@ -6,83 +6,20 @@
   // =========================================================================
 
   function scrapeProblem() {
-    // 문제 제목 추출
-    const titleSelectors = [ "h1", "h2", ".problem-title", "[class*='title']", "header h1", "header h2" ];
-    let title = "";
-    for (const sel of titleSelectors) {
-      const el = document.querySelector(sel);
-      if (el && el.innerText.trim()) {
-        title = el.innerText.trim();
-        break;
-      }
-    }
-
-    // 문제 설명 추출
-    const editorEls = document.querySelectorAll(".ql-editor");
-    let description = "";
-    editorEls.forEach((el) => {
-      if (el.getAttribute("contenteditable") === "false") {
-        description += el.innerText.trim() + "\n\n";
-      }
-    });
-
-    if (!description.trim()) {
-      editorEls.forEach((el) => { description += el.innerText.trim() + "\n\n"; });
-    }
-
-    if (!description.trim()) {
-      const fallbackSelectors = [ "[class*='description']", "[class*='problem']", "[class*='content']", "article", "main" ];
-      for (const sel of fallbackSelectors) {
-        const el = document.querySelector(sel);
-        if (el && el.innerText.trim().length > 50) {
-          description = el.innerText.trim();
-          break;
-        }
-      }
-    }
-
+    const context = globalThis.OnCoProblemContext?.detect(document);
+    if (!context) throw new Error("실제 문제가 열려 있지 않습니다. 문제 제목·설명이 로딩된 뒤 다시 시도해주세요.");
+    const title = globalThis.OnCoProblemContext.text(context.title)
+      .replace(/📋\s*문제 복사/g, '').trim();
+    const description = globalThis.OnCoProblemContext.text(context.description);
     const langSelect = document.querySelector("select");
     const language = langSelect ? (langSelect.options[langSelect.selectedIndex]?.text?.trim() || "Python 3") : "Python 3";
-
-    return {
-      title: title || document.title || "",
-      description: description.trim(),
-      language,
-      testCases: (function() {
-        try {
-          let testCasesText = "";
-          const testCaseList = document.querySelectorAll('li.mt-1.flex.w-full.flex-col');
-          testCaseList.forEach((li, index) => {
-            const codeBoxes = li.querySelectorAll('div.bg-gray-700');
-            if (codeBoxes.length >= 2) {
-              let rawInputHtml = codeBoxes[0].innerHTML || "";
-              let rawOutputHtml = codeBoxes[1].innerHTML || "";
-
-              rawInputHtml = rawInputHtml.replace(/<\/span>\s*<(span|svg)/ig, '</span> <$1');
-              rawOutputHtml = rawOutputHtml.replace(/<\/span>\s*<(span|svg)/ig, '</span> <$1');
-              rawInputHtml = rawInputHtml.replace(/<br\s*\/?>/ig, '\n');
-              rawOutputHtml = rawOutputHtml.replace(/<br\s*\/?>/ig, '\n');
-
-              const tempIn = document.createElement('div');
-              const tempOut = document.createElement('div');
-              tempIn.innerHTML = rawInputHtml;
-              tempOut.innerHTML = rawOutputHtml;
-
-              let inputData = tempIn.textContent || tempIn.innerText || "";
-              let outputData = tempOut.textContent || tempOut.innerText || "";
-
-              inputData = inputData.replace(/[ \t]+/g, ' ').trim();
-              outputData = outputData.replace(/[ \t]+/g, ' ').trim();
-
-              testCasesText += `\n[테스트 케이스 ${index + 1}]\n`;
-              testCasesText += `입력:\n${inputData}\n`;
-              testCasesText += `출력:\n${outputData}\n`;
-            }
-          });
-          return testCasesText.trim();
-        } catch (e) { return ""; }
-      })()
-    };
+    let cases = "";
+    document.querySelectorAll('li.mt-1.flex.w-full.flex-col').forEach((li, index) => {
+      const boxes = li.querySelectorAll('div.bg-gray-700');
+      if (boxes.length < 2) return;
+      cases += `\n[테스트 케이스 ${index + 1}]\n입력:\n${cleanHtmlToText(boxes[0].innerHTML)}\n출력:\n${cleanHtmlToText(boxes[1].innerHTML)}\n`;
+    });
+    return { title, description, language, testCases: cases.trim() };
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -302,110 +239,113 @@
     return btn;
   }
 
+  const originalStyles = new WeakMap();
+  let currentTitle = null;
+  let currentEditor = null;
+  function rememberStyle(el) {
+    if (el && !originalStyles.has(el)) originalStyles.set(el, el.getAttribute('style'));
+  }
+  function resetInjectedUI() {
+    document.querySelectorAll('.onco-qol-copy-btn, #onco-monaco-toolbar, .onco-qol-image-copy-wrap').forEach(el => el.remove());
+    document.querySelectorAll('[data-onco-image-copy-ready]').forEach(img => delete img.dataset.oncoImageCopyReady);
+    for (const el of [currentTitle, currentEditor?.parentElement]) {
+      if (!el || !originalStyles.has(el)) continue;
+      const previous = originalStyles.get(el);
+      if (previous === null) el.removeAttribute('style'); else el.setAttribute('style', previous);
+      originalStyles.delete(el);
+    }
+    currentTitle = null;
+    currentEditor = null;
+  }
+
   function injectCopyButtons() {
-    // [문제 복사]
-    const titleHeader = document.querySelector('h2.title-2-stronger') || document.querySelector('h1.body-1-stronger');
-    if (titleHeader && !titleHeader.querySelector('.onco-qol-copy-btn')) {
-      titleHeader.style.display = 'flex'; titleHeader.style.alignItems = 'center'; titleHeader.style.justifyContent = 'space-between';
+    const context = globalThis.OnCoProblemContext?.detect(document);
+    if (!context) {
+      if (document.querySelector('.onco-qol-copy-btn')) resetInjectedUI();
+      return;
+    }
+    if (currentTitle !== context.title || currentEditor !== context.editor) resetInjectedUI();
+    currentTitle = context.title;
+    currentEditor = context.editor;
+
+    // A problem title is only eligible after both a populated description and Monaco are present.
+    const titleHeader = context.title;
+    if (!titleHeader.querySelector('.onco-qol-copy-btn')) {
+      rememberStyle(titleHeader);
+      titleHeader.style.display = 'flex';
+      titleHeader.style.alignItems = 'center';
+      titleHeader.style.justifyContent = 'space-between';
       titleHeader.appendChild(createCopyButton('문제 복사', () => {
-        const desc = document.querySelector('.ql-editor')?.innerText || "";
-        return `${titleHeader.innerText.replace('📋 문제 복사', '').trim()}\n\n${desc}`;
+        const fresh = globalThis.OnCoProblemContext.detect(document);
+        if (!fresh) throw Error('문제가 닫혔습니다.');
+        return `${globalThis.OnCoProblemContext.text(fresh.title).replace(/📋\s*문제 복사/g,'').trim()}\n\n${globalThis.OnCoProblemContext.text(fresh.description)}`;
       }));
     }
 
-    // [테스트 케이스 복사]
-    const testCaseList = document.querySelectorAll('li.mt-1.flex.w-full.flex-col');
-    testCaseList.forEach((li) => {
+    document.querySelectorAll('li.mt-1.flex.w-full.flex-col').forEach(li => {
       const labels = li.querySelectorAll('p.text-basic-text-normal');
-      const codeBoxes = li.querySelectorAll('div.bg-gray-700');
-
-      if (labels.length >= 2 && codeBoxes.length >= 2) {
-        if (!labels[0].querySelector('.onco-qol-copy-btn')) {
-          labels[0].style.display = 'flex'; labels[0].style.alignItems = 'center'; labels[0].style.justifyContent = 'space-between';
-          labels[0].appendChild(createCopyButton('입력 복사', () => cleanHtmlToText(codeBoxes[0].innerHTML)));
-        }
-        if (!labels[1].querySelector('.onco-qol-copy-btn')) {
-          labels[1].style.display = 'flex'; labels[1].style.alignItems = 'center'; labels[1].style.justifyContent = 'space-between';
-          labels[1].appendChild(createCopyButton('출력 복사', () => cleanHtmlToText(codeBoxes[1].innerHTML)));
-        }
+      const boxes = li.querySelectorAll('div.bg-gray-700');
+      if (labels.length < 2 || boxes.length < 2) return;
+      for (const [index, label] of [labels[0], labels[1]].entries()) {
+        if (label.querySelector('.onco-qol-copy-btn')) continue;
+        rememberStyle(label);
+        label.style.display = 'flex';
+        label.style.alignItems = 'center';
+        label.style.justifyContent = 'space-between';
+        label.appendChild(createCopyButton(index === 0 ? '입력 복사' : '출력 복사',
+          () => cleanHtmlToText(boxes[index].innerHTML)));
       }
     });
 
-    // ✨ [Monaco 에디터 툴바] ✨ (풀이/붙여넣기/코드 복사)
-    const editorContainer = document.querySelector('.monaco-editor');
-    if (editorContainer && !document.getElementById('onco-monaco-toolbar')) {
+    const editorContainer = context.editor;
+    if (!document.getElementById('onco-monaco-toolbar')) {
       const parent = editorContainer.parentElement;
       if (parent) {
+        rememberStyle(parent);
         parent.style.position = 'relative';
-
         const toolbar = document.createElement('div');
         toolbar.id = 'onco-monaco-toolbar';
         Object.assign(toolbar.style, {
           position: 'absolute', top: '12px', right: '25px', zIndex: '99999',
           display: 'flex', alignItems: 'center', gap: '6px'
         });
-
-        const solveBtn = createActionButton('문제 풀이', '⚡', () => {
-          return sendRuntimeMessage({ action: "SOLVE_PROBLEM" });
-        });
-
-        const pasteBtn = createActionButton('강제 붙여넣기', '📌', async () => {
-          let text = "";
-          try {
-            text = await navigator.clipboard.readText();
-          } catch (err) {
-            throw new Error("클립보드 텍스트를 읽을 수 없습니다. 브라우저 권한을 확인해주세요.");
-          }
-          if (!text) throw new Error("클립보드가 비어있습니다.");
-          return sendRuntimeMessage({ action: "INJECT_CLIPBOARD_TEXT", text });
-        });
-
-        const monacoBtn = createCopyButton('코드 복사', () => {
-          return new Promise((resolve, reject) => {
-            // background.js에 코드 추출 특별 지시 발송!
-            chrome.runtime.sendMessage({ action: "GET_MONACO_CODE" }, (response) => {
-              if (chrome.runtime.lastError) {
-                return reject(new Error("통신 오류: " + chrome.runtime.lastError.message));
-              }
-              if (response && response.success && typeof response.code === "string") {
-                resolve(response.code);
-              } else {
-                reject(new Error(response?.error || 'Monaco 에디터 코드를 읽어올 수 없습니다.'));
-              }
-            });
+        toolbar.appendChild(createActionButton('문제 풀이', '⚡', () => sendRuntimeMessage({ action: 'SOLVE_PROBLEM' })));
+        toolbar.appendChild(createActionButton('강제 붙여넣기', '📌', async () => {
+          const value = await navigator.clipboard.readText();
+          if (!value) throw Error('클립보드가 비어있습니다.');
+          return sendRuntimeMessage({ action: 'INJECT_CLIPBOARD_TEXT', text: value });
+        }));
+        const codeButton = createCopyButton('코드 복사', () => new Promise((resolve, reject) => {
+          chrome.runtime.sendMessage({ action: 'GET_MONACO_CODE' }, response => {
+            if (chrome.runtime.lastError) return reject(Error(chrome.runtime.lastError.message));
+            if (response?.success && typeof response.code === 'string') resolve(response.code);
+            else reject(Error(response?.error || '코드를 읽을 수 없습니다.'));
           });
-        });
-        
-        monacoBtn.id = 'onco-monaco-copy-btn';
-        Object.assign(monacoBtn.style, {
-          marginLeft: '0', border: '1px solid #4a90d9', whiteSpace: 'nowrap'
-        });
-        
-        toolbar.appendChild(solveBtn);
-        toolbar.appendChild(pasteBtn);
-        toolbar.appendChild(monacoBtn);
+        }));
+        codeButton.id = 'onco-monaco-copy-btn';
+        codeButton.style.marginLeft = '0';
+        toolbar.appendChild(codeButton);
         parent.appendChild(toolbar);
       }
     }
 
-    // [문제 이미지 복사]
-    const problemImages = document.querySelectorAll('.ql-editor img, main img, article img');
-    problemImages.forEach((img) => {
-      if (!img.src || img.dataset.oncoImageCopyReady === "true") return;
-      img.dataset.oncoImageCopyReady = "true";
-
-      const btn = createImageCopyButton(img);
-      const container = document.createElement('div');
-      container.className = 'onco-qol-image-copy-wrap';
-      container.style.display = 'block';
-      container.appendChild(btn);
-
-      img.insertAdjacentElement('afterend', container);
+    context.description.querySelectorAll('img').forEach(img => {
+      if (!(img.currentSrc || img.src) || img.dataset.oncoImageCopyReady === 'true') return;
+      img.dataset.oncoImageCopyReady = 'true';
+      const wrapper = document.createElement('div');
+      wrapper.className = 'onco-qol-image-copy-wrap';
+      wrapper.appendChild(createImageCopyButton(img));
+      img.insertAdjacentElement('afterend', wrapper);
     });
   }
 
-  const observer = new MutationObserver(() => { injectCopyButtons(); });
-  observer.observe(document.body, { childList: true, subtree: true });
-  setTimeout(injectCopyButtons, 1000);
-
+  // SPA navigation/loading: batch rapid DOM mutations rather than injecting on every mutation.
+  let scheduled = false;
+  const observer = new MutationObserver(() => {
+    if (scheduled) return;
+    scheduled = true;
+    setTimeout(() => { scheduled = false; injectCopyButtons(); }, 120);
+  });
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+  injectCopyButtons();
 })();

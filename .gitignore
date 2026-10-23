@@ -1,0 +1,13 @@
+node_modules/
+dist/
+*.blob
+*.pfx
+*.p12
+*.pem
+*token*
+*.secret
+*.log
+.DS_Store
+.env*
+.onco-ai-solver/
+*.dpapi

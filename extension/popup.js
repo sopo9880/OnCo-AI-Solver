@@ -145,9 +145,6 @@
   const btnRemoveKey = document.getElementById("btn-remove-key");
   const chatgptSection = document.getElementById("chatgpt-section");
   const chatgptStatus = document.getElementById("chatgpt-status");
-  const chatgptPairSection = document.getElementById("chatgpt-pair-section");
-  const pairCode = document.getElementById("pair-code");
-  const btnPair = document.getElementById("btn-pair");
   const btnSignin = document.getElementById("btn-signin");
   const btnSignout = document.getElementById("btn-signout");
   const btnUsage = document.getElementById("btn-usage");
@@ -167,7 +164,6 @@
   let provider = "gemini";
   const modelChoice = { ...AUTO_VALUES };
   const storedKeys = { gemini: false, openai: false };
-  let paired = false;
   let hasSharing = false;
   let modelsRequestId = 0;
 
@@ -251,7 +247,7 @@
   function loadModels(forceRefresh = false) {
     const requestProvider = provider;
     const requestId = ++modelsRequestId;
-    const ready = requestProvider === "chatgpt" ? (paired && hasSharing) : storedKeys[requestProvider];
+    const ready = requestProvider === "chatgpt" ? hasSharing : storedKeys[requestProvider];
     if (!ready) {
       renderModelOptions();
       btnModelRefresh.disabled = true;
@@ -289,26 +285,22 @@
     chatgptStatus.textContent = "도우미 상태 확인 중...";
     sendAction("GET_CHATGPT_STATUS").then(res => {
       if (provider !== "chatgpt") return;
-      paired = Boolean(res.paired);
       hasSharing = Boolean(res.sharing);
-      chatgptPairSection.hidden = paired;
-      btnSignin.disabled = !paired;
+      btnSignin.disabled = false;
       btnSignout.disabled = !res.connected;
       if (res.connected) {
         chatgptStatus.textContent = `연결됨: ${res.email || "ChatGPT 계정"}` +
           (hasSharing ? " · 플랜 사용 허용됨" : " · 플랜 사용 권한 미허용 (다시 로그인해 권한 허용)");
       } else {
-        chatgptStatus.textContent = paired ? "도우미 연결됨 · ChatGPT 계정 로그인 필요" : "도우미 실행 중 · 연결 코드 입력 필요";
+        chatgptStatus.textContent = "ChatGPT 계정 로그인 필요 (로그인 후 새로고침)";
       }
       loadModels();
     }).catch(() => {
       if (provider !== "chatgpt") return;
-      paired = false;
       hasSharing = false;
-      chatgptPairSection.hidden = false;
       btnSignin.disabled = true;
       btnSignout.disabled = true;
-      chatgptStatus.textContent = "로컬 도우미가 실행되지 않았습니다. '도우미 설정 안내'를 확인하세요.";
+      chatgptStatus.textContent = "인증 도우미 연결 실패. 설치·연결 튜토리얼을 확인하세요.";
       loadModels();
     });
   }
@@ -383,18 +375,13 @@
   });
 
   btnOpenHelperGuide.addEventListener("click", () => {
-    chrome.tabs.create({ url: chrome.runtime.getURL("chatgpt_bridge/SETUP.html") });
+    chrome.tabs.create({ url: chrome.runtime.getURL("tutorial.html") });
   });
   btnUsage.addEventListener("click", () => chrome.tabs.create({ url: "https://chatgpt.com/settings/usage" }));
 
-  btnPair.addEventListener("click", () => {
-    sendAction("PAIR_CHATGPT_BRIDGE", { code: pairCode.value.trim() })
-      .then(() => { pairCode.value = ""; setStatus("도우미 연결 성공!", "success"); loadChatGPTStatus(); })
-      .catch(err => { setStatus(err.message, "error"); showErrorModal(err.message); });
-  });
   btnSignin.addEventListener("click", () => {
     sendAction("START_CHATGPT_SIGNIN").then(() => {
-      setStatus("ChatGPT 로그인 탭이 열렸습니다. 권한 승인 후 팝업을 다시 열어주세요.", "success");
+      setStatus("기본 브라우저에서 공식 로그인 창이 열립니다. 승인한 후 팝업에서 상태를 확인해주세요.", "success");
     }).catch(err => { setStatus(err.message, "error"); showErrorModal(err.message); });
   });
   btnSignout.addEventListener("click", () => {

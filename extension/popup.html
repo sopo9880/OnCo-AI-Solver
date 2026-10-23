@@ -309,7 +309,7 @@
   <select id="provider-select">
     <option value="gemini">Google Gemini / Gemma (API 키)</option>
     <option value="openai">OpenAI GPT (API 키)</option>
-    <option value="chatgpt">ChatGPT 계정 로그인 (로컬 도우미)</option>
+    <option value="chatgpt">ChatGPT 계정 로그인 (구독 사용)</option>
   </select>
 
   <section id="api-key-section">
@@ -324,21 +324,16 @@
 
   <section id="chatgpt-section" hidden>
     <div id="chatgpt-status">로컬 로그인 도우미 연결 확인 중...</div>
-    <p class="hint">공식 Sign in with ChatGPT를 사용합니다. 별도 로컬 도우미(Node.js)가 실행 중이어야 합니다.</p>
+    <p class="hint">공식 Sign in with ChatGPT를 사용합니다. 설치 후에는 별도 CMD 실행 없이 로그인할 수 있습니다.</p>
     <div class="row">
-      <button id="btn-open-helper-guide">도우미 설정 안내</button>
+      <button id="btn-open-helper-guide">설치·연결 튜토리얼</button>
       <button id="btn-usage">사용량 확인</button>
-    </div>
-    <div id="chatgpt-pair-section" class="section">
-      <label for="pair-code">도우미 터미널에 표시된 연결 코드</label>
-      <input type="text" id="pair-code" placeholder="12자리 연결 코드" autocomplete="off" />
-      <div class="row"><button id="btn-pair">도우미 연결</button></div>
     </div>
     <div class="row">
       <button id="btn-signin" disabled>Continue with ChatGPT</button>
       <button id="btn-signout" disabled>로그아웃</button>
     </div>
-    <p class="hint">계정 로그인과 ChatGPT 플랜 사용 권한은 별도 동의입니다. 도우미 종료 시 로그인 토큰은 메모리에서 사라집니다.</p>
+    <p class="hint">계정 로그인과 ChatGPT 플랜 사용 권한은 별도 동의입니다. 승인된 로그인은 Windows 계정에 암호화 저장되어 이후에도 유지됩니다.</p>
   </section>
 
   <hr class="divider" />

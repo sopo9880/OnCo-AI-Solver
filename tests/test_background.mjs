@@ -3,10 +3,10 @@ import { resolve } from 'node:path';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
 const root = resolve(import.meta.dirname, '..');
-const manifest = JSON.parse(await readFile(resolve(root, 'manifest.json'), 'utf8'));
-const bg = await readFile(resolve(root, 'background.js'), 'utf8');
-const popupJS = await readFile(resolve(root, 'popup.js'), 'utf8');
-const popupHTML = await readFile(resolve(root, 'popup.html'), 'utf8');
+const manifest = JSON.parse(await readFile(resolve(root, 'extension/manifest.json'), 'utf8'));
+const bg = await readFile(resolve(root, 'extension/background.js'), 'utf8');
+const popupJS = await readFile(resolve(root, 'extension/popup.js'), 'utf8');
+const popupHTML = await readFile(resolve(root, 'extension/popup.html'), 'utf8');
 assert.equal(manifest.manifest_version, 3);
 assert.ok(manifest.host_permissions.includes('https://api.openai.com/*'));
 for (const [, id] of popupJS.matchAll(/document\.getElementById\("([^\"]+)"\)/g)) {
@@ -16,6 +16,7 @@ let listener;
 const storage = {};
 const fetchCalls = [];
 const injections = [];
+const nativeCalls = [];
 const chrome = {
   commands: { onCommand: { addListener: () => {} } },
   storage: { local: {
@@ -29,7 +30,17 @@ const chrome = {
     remove: async keys => { for (const key of Array.isArray(keys) ? keys : [keys]) delete storage[key]; },
     setAccessLevel: async () => {}
   } },
-  runtime: { onMessage: { addListener: callback => { listener = callback; } } },
+  runtime: { onMessage: { addListener: callback => { listener = callback; } },
+    sendNativeMessage: (host, msg, cb) => {
+      nativeCalls.push({host,msg});
+      const replies = {
+        status: {success:true,connected:true,sharing:true,email:'tester@example.com'},
+        signin: {success:true,started:true},logout: {success:true},
+        models: {success:true,models:[{id:'gpt-6.1-sol',displayName:'GPT 6.1 Sol'},{id:'gpt-6-astra',displayName:'GPT 6 Astra'}]},
+        solve: {success:true,text:'print(3)'}
+      };
+      cb(replies[msg.action] || {success:false,error:'unsupported'});
+    } },
   tabs: { sendMessage: async () => ({ success: true, data: { title: 'Test', description: 'input int', language: 'Python 3', testCases: '1=>1' } }),
     create: async () => ({}) },
   scripting: { executeScript: async args => { injections.push(args.args?.[0]); return [{result:{success:true}}]; } }
@@ -51,16 +62,6 @@ const fetchMock = async (url, init = {}) => {
   }
   if (url === 'https://api.openai.com/v1/responses') {
     return makeResponse({ status:'completed', output:[{type:'message',content:[{type:'output_text',text:'```python\nprint(2)\n```'}]}] });
-  }
-  if (url.includes('127.0.0.1:18744')) {
-    const path = new URL(url).pathname;
-    if (path === '/health') return makeResponse({ready:true});
-    if (path === '/status') return makeResponse({connected:true,sharing:true,email:'test@example.com'});
-    if (path === '/models') return makeResponse({models:[{id:'gpt-6.1-sol',displayName:'GPT 6.1 Sol'}, {id:'gpt-6-astra',displayName:'GPT 6 Astra'}]});
-    if (path === '/solve') return makeResponse({text:'print(3)'});
-    if (path === '/pair') return makeResponse({token:'test-token'});
-    if (path === '/logout') return makeResponse({});
-    throw new Error('unexpected bridge path ' + path);
   }
   throw new Error('Unexpected fetch: ' + url);
 };
@@ -97,15 +98,16 @@ await send({action:'SOLVE_PROBLEM',tabId:11}).then(res => assert.equal(res.succe
 assert.equal(injections.at(-1), 'print(1)');
 // ChatGPT plan bridge uses distinct token, no API-key leakage.
 storage.onco_provider = 'chatgpt';
-storage.onco_bridge_token = 'test-token';
 listed = await send({action:'GET_MODELS',provider:'chatgpt'});
 assert.equal(listed.success, true, listed.error);
 assert.equal(listed.autoModel, 'gpt-6.1-sol');
 await send({action:'SOLVE_PROBLEM',tabId:11}).then(res => assert.equal(res.success, true, res.error));
 assert.equal(injections.at(-1), 'print(3)');
-const bridgeSolve = fetchCalls.find(c => c.url.endsWith('/solve'));
-assert.equal(JSON.parse(bridgeSolve.init.body).model, 'gpt-6.1-sol');
-assert.equal(bridgeSolve.init.headers['X-OnCo-Bridge-Token'], 'test-token');
+const bridgeSolve = nativeCalls.find(c => c.msg.action === 'solve');
+assert.equal(bridgeSolve.msg.data.model, 'gpt-6.1-sol');
+assert.equal(bridgeSolve.host,'org.onco.ai_solver');
+assert.equal((await send({action:'GET_CHATGPT_STATUS'})).connected,true);
+assert.equal((await send({action:'START_CHATGPT_SIGNIN'})).success,true);
 // Content scripts cannot query credential-related messages.
 const rejected = await send({action:'GET_CHATGPT_STATUS'}, {tab:{id:11}});
 assert.equal(rejected.success, false);
