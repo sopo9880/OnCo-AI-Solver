@@ -309,7 +309,7 @@
   <select id="provider-select">
     <option value="gemini">Google Gemini / Gemma (API 키)</option>
     <option value="openai">OpenAI GPT (API 키)</option>
-    <option value="chatgpt">ChatGPT 계정 로그인 (구독 사용)</option>
+    <option value="chatgpt">ChatGPT 계정 / GPT 구독 권한 별도</option>
   </select>
 
   <section id="api-key-section">
@@ -323,17 +323,22 @@
   </section>
 
   <section id="chatgpt-section" hidden>
-    <div id="chatgpt-status">로컬 로그인 도우미 연결 확인 중...</div>
+    <div id="chatgpt-status" role="status" aria-live="polite">인증 도우미 연결 확인 중...</div>
+    <div id="chatgpt-identity-status" class="hint" role="status">계정 인증: 확인 중</div>
+    <div id="chatgpt-plan-status" class="hint" role="status">GPT 플랜 권한: 확인 중</div>
+    <div id="chatgpt-auth-error" class="hint" role="alert" hidden></div>
     <p class="hint">공식 Sign in with ChatGPT를 사용합니다. 설치 후에는 별도 CMD 실행 없이 로그인할 수 있습니다.</p>
     <div class="row">
       <button id="btn-open-helper-guide">설치·연결 튜토리얼</button>
       <button id="btn-usage">사용량 확인</button>
     </div>
     <div class="row">
-      <button id="btn-signin" disabled>Continue with ChatGPT</button>
+      <button id="btn-signin" disabled>Continue with ChatGPT (계정 로그인)</button>
+      <button id="btn-enable-plan" disabled>GPT 플랜 사용 권한 요청</button>
       <button id="btn-signout" disabled>로그아웃</button>
     </div>
-    <p class="hint">계정 로그인과 ChatGPT 플랜 사용 권한은 별도 동의입니다. 승인된 로그인은 Windows 계정에 암호화 저장되어 이후에도 유지됩니다.</p>
+    <p class="hint">계정 로그인은 신원 확인만 요청합니다. GPT 플랜 사용은 로그인 후 별도로 동의하세요. OpenAI의 권한 변경 안내 메일만으로 모델 호출 성공이 증명되지는 않습니다. Team 조직 정책이 거절하면 우회할 수 없으며, Gemini / OpenAI API 키를 선택할 수 있습니다. API 사용은 별도 과금될 수 있으며 자동 전환되지 않습니다.</p>
+    <p class="hint">브라우저에 <code>3p_delegated_access_policy_denied</code>가 표시되면 조직 관리자에게 Request ID를 전달하세요. 로그인 권한과 GPT 호출 권한은 각각 거절될 수 있습니다.</p>
   </section>
 
   <hr class="divider" />

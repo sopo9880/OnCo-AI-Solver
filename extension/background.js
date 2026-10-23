@@ -391,10 +391,16 @@ async function callChatGPTNative(action, data = null) {
 
 async function getChatGPTStatus() {
   const result = await callChatGPTNative('status');
-  return { available: true, connected: Boolean(result.connected), sharing: Boolean(result.sharing), email: result.email || '' };
+  return { available: true, connected: Boolean(result.connected), sharing: Boolean(result.sharing),
+    identityStatus: result.identityStatus || (result.connected ? 'signed_in' : 'signed_out'),
+    planStatus: result.planStatus || (result.sharing ? 'scope_granted' : 'not_authorized'),
+    lastAuthError: result.lastAuthError || null };
 }
 
 async function getChatGPTModels() {
+  const status = await getChatGPTStatus();
+  if (!status.connected) throw new Error('[ENOLOGIN] Sign in with ChatGPT first.');
+  if (!status.sharing) throw new Error('[EPLAN] Grant ChatGPT plan usage separately or select an API-key provider.');
   const result = await callChatGPTNative('models');
   return { models: (result.models || []).map(m => ({ ...m, family: 'chatgpt', specialized: false })),
     updatedAt: Date.now(), stale: false };
@@ -743,7 +749,7 @@ chrome.commands.onCommand.addListener((command) => {
 // ──────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // 외부 페이지 콘텐츠 스크립트가 API 키나 로그인 도우미 제어 메시지를 보내지 못하게 방지.
-  const privilegedActions = new Set(["GET_MODELS", "GET_CHATGPT_STATUS", "START_CHATGPT_SIGNIN", "LOGOUT_CHATGPT"]);
+  const privilegedActions = new Set(["GET_MODELS", "GET_CHATGPT_STATUS", "START_CHATGPT_SIGNIN", "START_CHATGPT_PLAN_AUTH", "LOGOUT_CHATGPT"]);
   if (sender.tab && privilegedActions.has(message?.action)) {
     sendResponse({ success: false, error: "팝업에서만 실행 가능한 작업입니다." });
     return false;
@@ -783,6 +789,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === "START_CHATGPT_SIGNIN") {
     callChatGPTNative('signin').then(result => sendResponse({ success: true, ...result }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+  if (message.action === "START_CHATGPT_PLAN_AUTH") {
+    callChatGPTNative('enable-plan').then(result => sendResponse({ success: true, ...result }))
       .catch(err => sendResponse({ success: false, error: err.message }));
     return true;
   }
@@ -1097,3 +1108,4 @@ function showToast(message, type) {
     }, 3000);
   }
 }
+
