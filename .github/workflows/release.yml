@@ -3,47 +3,126 @@ on:
   workflow_run:
     workflows: ['CI build Windows (one build)']
     types: [completed]
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: 'Successful main-branch Windows CI run ID to reuse'
+        required: true
+        type: string
+      source_sha:
+        description: '40-digit source commit SHA of that CI run'
+        required: true
+        type: string
+  # One-time no-rebuild recovery from the successful v1.3.0 build.
+  # A future edit will not republish this version because the job condition checks "before".
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/release.yml'
 permissions:
   contents: write
   actions: read
 jobs:
   release:
     if: >-
-      ${{ github.event.workflow_run.conclusion == 'success' &&
-          github.event.workflow_run.head_branch == 'main' &&
-          github.event.workflow_run.event == 'push' }}
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.event == 'push') ||
+      (github.event_name == 'workflow_dispatch') ||
+      (github.event_name == 'push' &&
+       github.event.before == '70bb69978518fba6b4c32f4bac1a95029d2ef920')
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
-      - name: Download exact build artifact
-        uses: actions/download-artifact@v4
-        with:
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          name: onco-v1.3.0-${{ github.event.workflow_run.head_sha }}
-          path: dist
-      - name: Confirm version, commit and integrity
-        shell: bash
-        env:
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-        run: |
-          set -euo pipefail
-          grep -Fx "commit=$HEAD_SHA" dist/SOURCE_COMMIT.txt
-          grep -Fx 'version=1.3.0' dist/SOURCE_COMMIT.txt
-          cd dist
-          sha256sum -c SHA256SUMS.txt
-      - name: Publish release without compiling or resigning
+      - name: Resolve and verify successful CI source
+        id: source
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_RUN_ID: ${{ github.event.workflow_run.id || inputs.source_run_id }}
+          EVENT_SOURCE_SHA: ${{ github.event.workflow_run.head_sha || inputs.source_sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          source_sha="$EVENT_SOURCE_SHA"
+          run_id="$EVENT_RUN_ID"
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            source_sha="$PUSH_BEFORE"
+            run_id="$(gh api "repos/$GH_REPO/actions/workflows/build.yml/runs?head_sha=$source_sha&event=push&per_page=100" --jq '.workflow_runs | map(select(.conclusion == "success" and .head_branch == "main")) | .[0].id // empty')"
+          fi
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid source SHA"; exit 1; }
+          [[ "$run_id" =~ ^[0-9]+$ ]] || { echo "No successful CI run for the exact SHA"; exit 1; }
+          gh api "repos/$GH_REPO/actions/runs/$run_id" |
+            jq -e --arg sha "$source_sha" \
+              '.head_sha == $sha and .head_branch == "main" and .event == "push" and .conclusion == "success" and .name == "CI build Windows (one build)"' > /dev/null
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "Reusing successful CI run $run_id, source SHA $source_sha"
+
+      - name: Download exact build artifact without rebuilding
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ steps.source.outputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          name: onco-v1.3.0-${{ steps.source.outputs.sha }}
+          path: dist
+
+      - name: Verify version, source commit, and file SHA-256
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import os
+
+          base = Path('dist')
+          meta_lines = (base / 'SOURCE_COMMIT.txt').read_text(encoding='utf-8-sig').splitlines()
+          meta = dict(line.split('=', 1) for line in meta_lines if '=' in line)
+          expected_meta = {'commit': os.environ['SOURCE_SHA'], 'version': '1.3.0'}
+          if meta != expected_meta or len(meta_lines) != len(expected_meta):
+              raise SystemExit(f'Build metadata mismatch: {meta!r}')
+
+          expected_names = {'OnCo_Setup_v1.3.0.exe', 'OnCo_Extension_v1.3.0.zip', 'OnCoBridge.exe'}
+          checksums = (base / 'SHA256SUMS.txt').read_text(encoding='utf-8-sig').splitlines()
+          verified = set()
+          for line in checksums:
+              if '  ' not in line:
+                  raise SystemExit('Malformed SHA256SUMS line')
+              digest, name = line.split('  ', 1)
+              if name not in expected_names or name in verified or len(digest) != 64:
+                  raise SystemExit('Unexpected checksum filename or digest')
+              path = base / name
+              if not path.is_file():
+                  raise SystemExit(f'Missing CI artifact: {name}')
+              actual = hashlib.sha256(path.read_bytes()).hexdigest()
+              if actual.lower() != digest.lower():
+                  raise SystemExit(f'SHA256 mismatch: {name}')
+              verified.add(name)
+              print(f'{name}: OK')
+          if verified != expected_names:
+              raise SystemExit(f'Incomplete checksum manifest: {verified!r}')
+          print('Exact original CI commit, version, and payload hashes verified')
+          PY
+
+      - name: Publish existing CI artifact (never replace released binaries)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
         run: |
           set -euo pipefail
           tag=v1.3.0
           if gh release view "$tag" >/dev/null 2>&1; then
-            echo "Release $tag already exists; refusing to overwrite binary artifacts."; exit 0
+            echo "Release already exists; refusing to overwrite or duplicate binary assets."
+            exit 0
           fi
-          gh release create "$tag" --target "$HEAD_SHA" --title "OnCo AI Solver v1.3.0" \
-            --notes 'Installer + browser connection guide + native ChatGPT login + problem-page button recognition. Windows device test remains user responsibility. Unsigned Windows installer may trigger SmartScreen.' \
+          gh release create "$tag" --target "$SOURCE_SHA" --title "OnCo AI Solver v1.3.0" \
+            --notes 'Installer, Chrome/Whale setup guide, Native Messaging ChatGPT login, and problem-page button detection. Requires Windows device validation. Unsigned installer may trigger SmartScreen.' \
             dist/OnCo_Setup_v1.3.0.exe dist/OnCo_Extension_v1.3.0.zip dist/OnCoBridge.exe dist/SHA256SUMS.txt dist/SOURCE_COMMIT.txt

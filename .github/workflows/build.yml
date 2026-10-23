@@ -2,6 +2,9 @@ name: CI build Windows (one build)
 on:
   push:
     branches: [main]
+    # No expensive rebuild for release-only workflow maintenance.
+    paths-ignore:
+      - '.github/workflows/**'
   workflow_dispatch:
 permissions:
   contents: read
