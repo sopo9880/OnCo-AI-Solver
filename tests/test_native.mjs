@@ -47,7 +47,7 @@ try{
  const byId=new Map(results.map(response=>[response.id,response]));
  assert.deepEqual(Array.from(byId.keys()).sort(),[1,2,3,4,5]);
  assert.equal(byId.get(1).ready,true);
- assert.equal(byId.get(1).version,'1.3.4');
+ assert.equal(byId.get(1).version,'1.3.5');
  assert.equal(byId.get(2).connected,false);
  assert.equal(byId.get(2).sharing,false);
  assert.equal(byId.get(2).identityStatus,'signed_out');

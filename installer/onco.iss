@@ -1,4 +1,4 @@
-#define AppVersion "1.3.4"
+#define AppVersion "1.3.5"
 #define ExtensionId "ljgoegcgbhhjhgpmdlnmnodadcdclgfm"
 [Setup]
 AppId={{6E2C201A-FF2F-45B3-898D-B6977CA8C167}

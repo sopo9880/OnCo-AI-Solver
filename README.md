@@ -2,12 +2,18 @@
 
 OnCo 코딩 문제 화면에서 문제 추출, Gemini/OpenAI API 키 기반 AI 풀이, **ChatGPT 계정의 Codex app-server 모델 사용**, 코드 에디터 삽입을 지원하는 비공식 Chrome / Naver Whale 확장입니다.
 
-## Windows 설치 및 업데이트 (v1.3.4)
+## Windows 설치 및 업데이트 (v1.3.5)
 
-1. [GitHub Releases](https://github.com/sopo9880/OnCo-AI-Solver/releases)에서 `OnCo_Setup_v1.3.4.exe`를 설치합니다. 이전 버전은 제거하지 않고 **같은 설치 폴더**에 덮어 설치하세요.
+1. [GitHub Releases](https://github.com/sopo9880/OnCo-AI-Solver/releases)에서 `OnCo_Setup_v1.3.5.exe`를 설치합니다. 이전 버전은 제거하지 않고 **같은 설치 폴더**에 덮어 설치하세요.
 2. 설치 안내의 **Chrome / Whale → 새 탭에서 열기**로 `chrome://extensions` 또는 `whale://extensions`를 엽니다. 외부 앱 확인창을 허용해야 할 수 있습니다. 열리지 않으면 **주소 복사**를 사용하세요.
 3. 처음 설치하는 경우 개발자 모드를 켜고 **압축 해제된 확장 프로그램 로드**에서 설치 폴더의 `extension`을 선택합니다. 기존 설치라면 기존 확장의 **새로고침(↻)**만 누릅니다. 확장 ID는 바뀌지 않습니다.
 4. 확장 팝업의 **AI 서비스 → ChatGPT · Codex 로그인** 또는 기존 **Gemini / OpenAI API 키** 중 하나를 선택합니다.
+
+## v1.3.5 설치 안내 CSP 수정
+
+- 설치 후 열리는 로컬 `index.html`과 Chrome/Whale 확장 내 `tutorial.html`은 인라인 `<script>` 및 `onclick`을 사용하지 않습니다. 동일한 외부 `tutorial.js`를 로드해 MV3 확장의 `script-src 'self'` 정책을 준수합니다.
+- **확장 관리 화면 열기**(Windows `onco-ai-solver://` 딥링크), **Chrome/Whale 주소 복사**, **설치 폴더 경로 복사** 기능은 그대로 유지합니다. `file://` 안내 페이지에서 Clipboard API가 차단되면 대체 복사를 시도하고, 그것도 실패하면 수동 복사를 안내합니다.
+- 기존 Setup에 덮어 설치한 뒤 확장 관리 화면에서 기존 OnCo 확장을 **새로고침**하면 됩니다. 확장 ID·설정·Codex 인증 데이터·Gemini/OpenAI 키는 변경하지 않습니다.
 
 ## ChatGPT 로그인 — World Studio 방식
 
@@ -27,7 +33,7 @@ v1.3.4부터 OnCo가 직접 `dynamic_agent_client` OAuth URL을 만들거나 Ope
 - 이전 v1.3.0~v1.3.3의 `chatgpt-registration.json`, `chatgpt-session.dpapi`는 **자동 삭제·복호화·수정되지 않습니다.** 새 Codex 인증 방식은 별도의 로그인 동의가 필요합니다. 기존 Gemini/OpenAI API 키 및 브라우저 확장 설정도 그대로 유지합니다.
 - 확장에는 로그인 상태, 필요할 때 일회용 로그인 코드, 모델 목록·생성 답변만 전달합니다. Codex 토큰·비밀번호·프로필 이메일은 전달하지 않습니다.
 - Codex AI 생성은 `approvalPolicy: never`, `sandbox: read-only`, 도구·셸·웹 검색 비활성화로 제한합니다. Codex가 보내는 명령 실행 요청은 거부합니다. 실제 Windows 로그인과 모델 호출 성공은 **릴리스 후 실기기에서 확인**해야 합니다.
-- **수동 구성용:** `OnCo_Runtime_v1.3.4.zip`에는 `OnCoBridge.exe` 및 `bin/codex.exe`가 포함됩니다. 별도 다운로드한 `OnCoBridge.exe`만으로는 Codex가 작동하지 않으니 일반 사용자는 **Setup**을 설치하세요.
+- **수동 구성용:** `OnCo_Runtime_v1.3.5.zip`에는 `OnCoBridge.exe` 및 `bin/codex.exe`가 포함됩니다. 별도 다운로드한 `OnCoBridge.exe`만으로는 Codex가 작동하지 않으니 일반 사용자는 **Setup**을 설치하세요.
 
 ## 구성
 
