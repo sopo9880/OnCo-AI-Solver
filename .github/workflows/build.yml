@@ -66,25 +66,25 @@ jobs:
       - name: Produce extension ZIP and checksums
         shell: pwsh
         run: |
-          Compress-Archive -Path extension/* -DestinationPath dist/OnCo_Extension_v1.3.4.zip -CompressionLevel Optimal
-          $runtimeRoot = Join-Path $env:RUNNER_TEMP 'onco-runtime-1.3.4'
+          Compress-Archive -Path extension/* -DestinationPath dist/OnCo_Extension_v1.3.5.zip -CompressionLevel Optimal
+          $runtimeRoot = Join-Path $env:RUNNER_TEMP 'onco-runtime-1.3.5'
           New-Item -ItemType Directory -Force (Join-Path $runtimeRoot 'bin') | Out-Null
           Copy-Item dist/OnCoBridge.exe (Join-Path $runtimeRoot 'OnCoBridge.exe')
           Copy-Item dist/bin/codex.exe (Join-Path $runtimeRoot 'bin/codex.exe')
           Copy-Item licenses/CODEX_APACHE_2.0.txt (Join-Path $runtimeRoot 'LICENSE-CODEX.txt')
-          Compress-Archive -Path "$runtimeRoot/*" -DestinationPath dist/OnCo_Runtime_v1.3.4.zip -CompressionLevel Optimal
-          @("commit=$env:GITHUB_SHA",'version=1.3.4') | Set-Content -Encoding utf8 dist/SOURCE_COMMIT.txt
-          $items = @('OnCo_Setup_v1.3.4.exe','OnCo_Extension_v1.3.4.zip','OnCo_Runtime_v1.3.4.zip','OnCoBridge.exe')
+          Compress-Archive -Path "$runtimeRoot/*" -DestinationPath dist/OnCo_Runtime_v1.3.5.zip -CompressionLevel Optimal
+          @("commit=$env:GITHUB_SHA",'version=1.3.5') | Set-Content -Encoding utf8 dist/SOURCE_COMMIT.txt
+          $items = @('OnCo_Setup_v1.3.5.exe','OnCo_Extension_v1.3.5.zip','OnCo_Runtime_v1.3.5.zip','OnCoBridge.exe')
           $sum = foreach ($name in $items) { $entry = Get-FileHash -Algorithm SHA256 "dist/$name"; "$($entry.Hash.ToLowerInvariant())  $name" }
           $sum | Set-Content -Encoding ascii dist/SHA256SUMS.txt
           Get-ChildItem dist | Select-Object Name,Length
       - uses: actions/upload-artifact@v4
         with:
-          name: onco-v1.3.4-${{ github.sha }}
+          name: onco-v1.3.5-${{ github.sha }}
           path: |
-            dist/OnCo_Setup_v1.3.4.exe
-            dist/OnCo_Extension_v1.3.4.zip
-            dist/OnCo_Runtime_v1.3.4.zip
+            dist/OnCo_Setup_v1.3.5.exe
+            dist/OnCo_Extension_v1.3.5.zip
+            dist/OnCo_Runtime_v1.3.5.zip
             dist/OnCoBridge.exe
             dist/SHA256SUMS.txt
             dist/SOURCE_COMMIT.txt

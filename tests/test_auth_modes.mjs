@@ -58,7 +58,7 @@ assert.ok(!JSON.stringify(current).includes('private-user@example.test'));
 assert.equal((await dispatch({action:'signin'})).alreadyConnected,true);
 const models=await dispatch({action:'models'});
 assert.deepEqual(Array.from(models.models,m=>m.id),['gpt-6-codex']);
-assert.equal((await dispatch({action:'ping'})).version,'1.3.4');
+assert.equal((await dispatch({action:'ping'})).version,'1.3.5');
 await dispatch({action:'logout'});
 assert.equal((await status()).connected,false);
 account={type:'apiKey',planType:'',apiKey:'dont-export'};
