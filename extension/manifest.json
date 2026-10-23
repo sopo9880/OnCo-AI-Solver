@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "OnCo AI Solver",
-  "version": "1.3.0",
-  "description": "OnCo 문제 페이지 전용 도구, Gemini / GPT 모델 자동 조회, ChatGPT 공식 로그인 및 Windows 설치 연동",
+  "version": "1.3.1",
+  "description": "OnCo problem-page tools, Gemini/OpenAI API keys, and separately authorized ChatGPT identity and plan access",
   "permissions": [
     "activeTab",
     "scripting",

@@ -17,6 +17,9 @@ const STORAGE_PATH = join(STORAGE_DIR, 'chatgpt-registration.json');
 const SESSION_PATH = join(STORAGE_DIR, 'chatgpt-session.dpapi');
 const LOGIN_LOCK = join(STORAGE_DIR, 'signin.lock');
 const CODE_LIFETIME_MS = 10 * 60 * 1000;
+const IDENTITY_SCOPES = 'openid profile email';
+const PLAN_SCOPES = 'openid profile email offline_access resource.invoke chatgpt.tokens.use.direct';
+const ERROR_PATH = join(STORAGE_DIR, 'last-auth-error.json');
 let pending = null;
 let session = null;
 let busy = false;
@@ -163,22 +166,27 @@ async function loadSession() {
     if (e.code !== 'ENOENT') console.error('저장된 ChatGPT 세션을 열지 못했습니다. 재로그인이 필요합니다.');
   }
 }
-function beginSignin(callback) {
+function beginSignin(callback, mode = 'identity') {
+  if (!['identity', 'plan'].includes(mode)) throw Error('Invalid authorization mode');
   const nonce = randomBytes(24).toString('base64url');
   const state = randomBytes(24).toString('base64url');
   const verifier = randomBytes(48).toString('base64url');
   const challenge = createHash('sha256').update(verifier).digest('base64url');
   const clientId = registration.clientId || 'dynamic_agent_client';
-  pending = { nonce, state, verifier, clientId, startedAt: Date.now() };
+  pending = { nonce, state, verifier, clientId, mode, startedAt: Date.now() };
   const url = new URL(`${AUTH_BASE}/api/accounts/authorize`);
   for (const [key, val] of Object.entries({
     client_id: clientId, response_type: 'code', redirect_uri: callback,
-    scope: 'openid profile email offline_access resource.invoke chatgpt.tokens.use.direct',
+    scope: mode === 'plan' ? PLAN_SCOPES : IDENTITY_SCOPES,
     resource: API_BASE, state, nonce, code_challenge_method: 'S256', code_challenge: challenge,
     ext_agent_host_id: registration.hostId
   })) url.searchParams.set(key, val);
   if (clientId === 'dynamic_agent_client') url.searchParams.set('agent_name_hint', APP_NAME);
-  if (session && !session.scopes.includes('chatgpt.tokens.use.direct')) url.searchParams.set('prompt', 'consent');
+  if (mode === 'plan') {
+    // User explicitly requested plan access, never during ordinary sign-in.
+    url.searchParams.set('prompt', 'consent');
+    if (session?.idToken) url.searchParams.set('id_token_hint', session.idToken);
+  }
   return url.toString();
 }
 
@@ -187,7 +195,11 @@ async function completeSignin(url, callback) {
   const attempt = pending;
   pending = null; // 1회 사용
   if (!safeEquals(url.searchParams.get('state') || '', attempt.state)) throw Error('OAuth state 값이 일치하지 않습니다.');
-  if (url.searchParams.has('error')) throw Error('ChatGPT 로그인 또는 권한 제공이 취소되었습니다.');
+  if (url.searchParams.has('error')) {
+    const code = String(url.searchParams.get('error') || '').slice(0, 80).replace(/[^a-zA-Z0-9._-]/g, '');
+    const requestId = String(url.searchParams.get('request_id') || '').slice(0, 80).replace(/[^a-zA-Z0-9-]/g, '');
+    throw httpError(403, `OpenAI authorization declined (${code || 'access_denied'})${requestId ? `, request_id=${requestId}` : ''}. Check workspace policy; your identity session is preserved.`);
+  }
   const code = url.searchParams.get('code');
   if (!code || code.length > 2048) throw Error('인증 코드가 없습니다.');
   const returnedClientId = url.searchParams.get('client_id');
@@ -197,8 +209,7 @@ async function completeSignin(url, callback) {
       throw Error('OpenAI가 발급한 앱 등록 ID가 없습니다.');
     }
     issuedClientId = returnedClientId;
-    registration.clientId = issuedClientId;
-    await persistRegistration(); // 코드 만료 시에도 등록 ID 재사용
+    // Do not mutate the active registration until the new identity is verified.
   } else if (returnedClientId && returnedClientId !== issuedClientId) {
     throw Error('연결된 ChatGPT 앱 등록 정보가 변경되었습니다.');
   }
@@ -209,20 +220,26 @@ async function completeSignin(url, callback) {
     throw Error('기존 연결과 다른 ChatGPT 계정입니다. 다른 계정을 연결하려면 등록 정보를 초기화해야 합니다.');
   }
   const scopes = String(tokens.scope || '').split(/\s+/).filter(Boolean);
-  if (!tokens.access_token) throw Error('액세스 토큰을 받지 못했습니다.');
+  // Identity-only sign-in may return a validated ID token without an API bearer token.
+  // Plan inference always requires both explicit scope and a real bearer credential.
+  const accessToken = typeof tokens.access_token === 'string' ? tokens.access_token : '';
+  if (attempt.mode === 'plan' && scopes.includes('chatgpt.tokens.use.direct') && !accessToken) {
+    throw Error('ChatGPT plan permission was reported without a usable access token.');
+  }
+  registration.clientId = issuedClientId;
   registration.subject = identity.subject;
   await persistRegistration();
-  session = { ...identity, clientId: issuedClientId, accessToken: tokens.access_token,
+  session = { ...identity, clientId: issuedClientId, accessToken,
     refreshToken: tokens.refresh_token || '', idToken: tokens.id_token, scopes,
     expiresAt: Date.now() + Number(tokens.expires_in || 3600) * 1000 };
   await persistSession();
-  return { connected: true, sharing: scopes.includes('chatgpt.tokens.use.direct') };
+  return { connected: true, sharing: Boolean(accessToken && scopes.includes('chatgpt.tokens.use.direct')), mode: attempt.mode };
 }
 
 async function activeSession() {
   if (!session) throw httpError(401, '먼저 Continue with ChatGPT로 로그인해주세요.');
-  if (!session.scopes.includes('chatgpt.tokens.use.direct')) {
-    throw httpError(403, 'ChatGPT 플랜 사용 권한을 허용하지 않았습니다. 다시 로그인해 권한을 허용해주세요.');
+  if (!session.scopes.includes('chatgpt.tokens.use.direct') || !session.accessToken) {
+    throw httpError(403, 'ChatGPT 플랜 사용 권한이 없습니다. 앱에서 GPT 플랜 권한 요청을 별도로 선택하거나 API 키 서비스를 이용하세요.');
   }
   if (session.expiresAt - Date.now() > 90_000) return session;
   if (!session.refreshToken) throw httpError(401, '세션이 만료됐습니다. 다시 로그인해주세요.');
@@ -323,6 +340,7 @@ async function logout() {
   session = null;
   pending = null;
   await rm(SESSION_PATH, { force: true });
+  await rm(ERROR_PATH, { force: true });
   if (s?.refreshToken) {
     try {
       const metadata = await oauthMetadata();
@@ -346,20 +364,44 @@ function renderAuthPage(res, ok, msg) {
 }
 
 
-function status() {
-  return { connected: Boolean(session), sharing: Boolean(session?.scopes?.includes('chatgpt.tokens.use.direct')),
-    email: session?.email || '' };
+async function lastAuthError() {
+  try {
+    const report = JSON.parse(await readFile(ERROR_PATH, 'utf8'));
+    if (!report || Date.now() - Number(report.at || 0) > 24 * 60 * 60 * 1000) return null;
+    return { message: String(report.message || '').slice(0, 350), mode: report.mode === 'plan' ? 'plan' : 'identity' };
+  } catch (_) { return null; }
+}
+async function saveAuthError(err, mode) {
+  // No token, authorization code, PKCE verifier, or callback URL is written.
+  const message = serializeError(err).replace(/(access_token|refresh_token|id_token)=[^\s&]+/g, '$1=[REDACTED]');
+  await mkdir(STORAGE_DIR, { recursive: true, mode: 0o700 });
+  await writeFile(ERROR_PATH, JSON.stringify({ at: Date.now(), mode, message }), { mode: 0o600 });
+}
+async function status() {
+  const connected = Boolean(session && (session.expiresAt > Date.now() || session.refreshToken));
+  const sharing = connected && Boolean(session?.accessToken && session?.scopes?.includes('chatgpt.tokens.use.direct'));
+  return { connected, sharing, identityStatus: connected ? 'signed_in' : 'signed_out',
+    planStatus: sharing ? 'scope_granted' : 'not_authorized',
+    email: connected ? session?.email || '' : '',
+    lastAuthError: await lastAuthError() };
 }
 function selfArgs(mode) {
   const isPackaged = process.execPath.toLowerCase().endsWith('oncobridge.exe');
   return isPackaged ? [mode] : [process.argv[1], mode];
 }
-async function startLoginWorker() {
-  const child = spawn(process.execPath, selfArgs('--login-worker'), { detached: true, windowsHide: true, stdio: 'ignore' });
+async function startLoginWorker(mode = 'identity') {
+  if (!['identity', 'plan'].includes(mode)) throw Error('Invalid authorization mode');
+  if (mode === 'identity' && (await status()).connected) return { started: false, alreadyConnected: true, mode };
+  if (mode === 'plan' && !(await status()).connected) {
+    throw httpError(401, 'Sign in first, then explicitly enable ChatGPT plan access.');
+  }
+  await rm(ERROR_PATH, { force: true });
+  const child = spawn(process.execPath, [...selfArgs('--login-worker'), mode], { detached: true, windowsHide: true, stdio: 'ignore' });
   child.unref();
-  return { started: true };
+  return { started: true, mode };
 }
-async function loginWorker() {
+async function loginWorker(mode = 'identity') {
+  if (!['identity', 'plan'].includes(mode)) throw Error('Invalid authorization mode');
   await mkdir(STORAGE_DIR, { recursive: true, mode: 0o700 });
   let file;
   try { file = await open(LOGIN_LOCK, 'wx', 0o600); }
@@ -384,6 +426,7 @@ async function loginWorker() {
         const result = await completeSignin(url, callback);
         renderAuthPage(res, true, result.sharing ? 'ChatGPT 플랜 사용이 승인되었습니다.' : '로그인은 성공했지만 플랜 사용 권한은 승인되지 않았습니다.');
       } catch (err) {
+        await saveAuthError(err, mode).catch(() => {});
         renderAuthPage(res, false, serializeError(err));
       } finally {
         server.close();
@@ -393,7 +436,7 @@ async function loginWorker() {
       server.once('error', reject); server.listen(0, HOST, resolve);
     });
     callback = `http://${HOST}:${server.address().port}/auth/callback`;
-    const authorizeUrl = beginSignin(callback);
+    const authorizeUrl = beginSignin(callback, mode);
     // Use the Windows default browser, no shell interpolation of user-provided input.
     const browser = spawn('rundll32.exe', ['url.dll,FileProtocolHandler', authorizeUrl], { windowsHide: true, stdio: 'ignore' });
     browser.on('error', err => console.error('브라우저 열기 실패:', err.message));
@@ -429,9 +472,12 @@ function writeNativeMessage(value) {
 async function dispatch(msg) {
   const action = msg?.action;
   switch (action) {
-    case 'ping': return { ready: true, version: '1.3.0' };
+    case 'ping': return { ready: true, version: '1.3.1' };
     case 'status': return status();
-    case 'signin': return startLoginWorker();
+    case 'signin':
+      if ((await status()).connected) return { started: false, alreadyConnected: true };
+      return startLoginWorker('identity');
+    case 'enable-plan': return startLoginWorker('plan');
     case 'logout': return logout();
     case 'models': return { models: await listModels() };
     case 'solve': return { text: await solveWithChatGPT(msg.data || {}) };
@@ -443,7 +489,7 @@ async function main() {
     await loadRegistration();
     await loadSession();
     if (process.argv.includes('--login-worker')) {
-      await loginWorker();
+      await loginWorker(process.argv[process.argv.indexOf('--login-worker') + 1] || 'identity');
       return;
     }
     const incoming = await readNativeMessage();

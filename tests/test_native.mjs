@@ -27,10 +27,15 @@ async function native(message) {
 try {
   const ping = await native({ action:'ping' });
   assert.equal(ping.ready,true);
-  assert.equal(ping.version,'1.3.0');
+  assert.equal(ping.version,'1.3.1');
   const status = await native({action:'status'});
   assert.equal(status.connected,false);
   assert.equal(status.sharing,false);
+  assert.equal(status.identityStatus,'signed_out');
+  assert.equal(status.planStatus,'not_authorized');
+  const upgrade = await native({ action:'enable-plan' });
+  assert.equal(upgrade.success,false);
+  assert.match(upgrade.error,/Sign in first/);
   const models = await native({action:'models'});
   assert.equal(models.success,false); // no credentials, no API call
   assert.match(models.error,/로그인/);

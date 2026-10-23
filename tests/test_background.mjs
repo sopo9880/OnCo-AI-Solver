@@ -34,8 +34,8 @@ const chrome = {
     sendNativeMessage: (host, msg, cb) => {
       nativeCalls.push({host,msg});
       const replies = {
-        status: {success:true,connected:true,sharing:true,email:'tester@example.com'},
-        signin: {success:true,started:true},logout: {success:true},
+        status: {success:true,connected:true,sharing:true,identityStatus:'signed_in',planStatus:'scope_granted',email:'tester@example.com'},
+        signin: {success:true,started:true,mode:'identity'},'enable-plan': {success:true,started:true,mode:'plan'},logout: {success:true},
         models: {success:true,models:[{id:'gpt-6.1-sol',displayName:'GPT 6.1 Sol'},{id:'gpt-6-astra',displayName:'GPT 6 Astra'}]},
         solve: {success:true,text:'print(3)'}
       };
@@ -108,7 +108,12 @@ assert.equal(bridgeSolve.msg.data.model, 'gpt-6.1-sol');
 assert.equal(bridgeSolve.host,'org.onco.ai_solver');
 assert.equal((await send({action:'GET_CHATGPT_STATUS'})).connected,true);
 assert.equal((await send({action:'START_CHATGPT_SIGNIN'})).success,true);
+assert.equal(nativeCalls.at(-1).msg.action,'signin');
+assert.equal((await send({action:'START_CHATGPT_PLAN_AUTH'})).success,true);
+assert.equal(nativeCalls.at(-1).msg.action,'enable-plan');
 // Content scripts cannot query credential-related messages.
 const rejected = await send({action:'GET_CHATGPT_STATUS'}, {tab:{id:11}});
 assert.equal(rejected.success, false);
+const deniedPlan = await send({action:'START_CHATGPT_PLAN_AUTH'},{tab:{id:11}});
+assert.equal(deniedPlan.success,false);
 console.log('PASS: popup DOM, OpenAI/Gemini/ChatGPT routing, dynamic model selection, injection, secret compartmentalization');

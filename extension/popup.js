@@ -146,6 +146,10 @@
   const chatgptSection = document.getElementById("chatgpt-section");
   const chatgptStatus = document.getElementById("chatgpt-status");
   const btnSignin = document.getElementById("btn-signin");
+  const btnEnablePlan = document.getElementById("btn-enable-plan");
+  const identityStatus = document.getElementById("chatgpt-identity-status");
+  const planStatus = document.getElementById("chatgpt-plan-status");
+  const authError = document.getElementById("chatgpt-auth-error");
   const btnSignout = document.getElementById("btn-signout");
   const btnUsage = document.getElementById("btn-usage");
   const btnOpenHelperGuide = document.getElementById("btn-open-helper-guide");
@@ -165,6 +169,8 @@
   const modelChoice = { ...AUTO_VALUES };
   const storedKeys = { gemini: false, openai: false };
   let hasSharing = false;
+  let hasIdentity = false;
+  let chatgptCatalogReady = false;
   let modelsRequestId = 0;
 
   function selectedModelValue() {
@@ -200,7 +206,7 @@
       }
       modelSelect.appendChild(optgroup);
     }
-    if (preferred !== AUTO_VALUES[provider] && !models.some(m => m.id === preferred)) {
+    if (provider !== "chatgpt" && preferred !== AUTO_VALUES[provider] && !models.some(m => m.id === preferred)) {
       const oldGroup = document.createElement("optgroup");
       oldGroup.label = "저장된 이전 모델 (목록에서 확인되지 않음)";
       oldGroup.appendChild(createOption(preferred, `${preferred} ⚠`, true));
@@ -232,6 +238,8 @@
       btnSave.disabled = false;
     }
     renderModelOptions();
+    btnSolve.disabled = chatgpt && !chatgptCatalogReady;
+    modelSelect.disabled = chatgpt && !chatgptCatalogReady;
   }
 
   function sendAction(action, extras = {}) {
@@ -249,7 +257,9 @@
     const requestId = ++modelsRequestId;
     const ready = requestProvider === "chatgpt" ? hasSharing : storedKeys[requestProvider];
     if (!ready) {
+      if (requestProvider === "chatgpt") chatgptCatalogReady = false;
       renderModelOptions();
+      if (requestProvider === "chatgpt") { btnSolve.disabled = true; modelSelect.disabled = true; }
       btnModelRefresh.disabled = true;
       modelInfo.textContent = requestProvider === "chatgpt"
         ? "ChatGPT 로그인 및 플랜 사용 허용 후 모델을 불러옵니다."
@@ -262,7 +272,10 @@
     sendAction("GET_MODELS", { provider: requestProvider, forceRefresh })
       .then(response => {
         if (requestId !== modelsRequestId || provider !== requestProvider) return;
-        renderModelOptions(response.models || [], response.autoModel || "");
+        const models = response.models || [];
+        if (requestProvider === "chatgpt") chatgptCatalogReady = models.length > 0;
+        renderModelOptions(models, response.autoModel || "");
+        if (requestProvider === "chatgpt") { btnSolve.disabled = !chatgptCatalogReady; modelSelect.disabled = !chatgptCatalogReady; }
         modelInfo.textContent = `${requestProvider === "gemini" ? "Gemini" : requestProvider === "openai" ? "OpenAI" : "ChatGPT"} 공식 모델 조회` +
           `${response.updatedAt ? " · " + formatSyncTime(response.updatedAt) : ""}` +
           `${response.stale ? " · 이전 캐시" : ""}`;
@@ -270,7 +283,9 @@
       })
       .catch(err => {
         if (requestId !== modelsRequestId || provider !== requestProvider) return;
+        if (requestProvider === "chatgpt") chatgptCatalogReady = false;
         renderModelOptions();
+        if (requestProvider === "chatgpt") { btnSolve.disabled = true; modelSelect.disabled = true; }
         modelInfo.textContent = "모델 조회 실패: " + err.message;
       })
       .finally(() => {
@@ -282,25 +297,39 @@
 
   function loadChatGPTStatus() {
     if (provider !== "chatgpt") return;
-    chatgptStatus.textContent = "도우미 상태 확인 중...";
+    chatgptStatus.textContent = "인증 도우미 상태 확인 중...";
     sendAction("GET_CHATGPT_STATUS").then(res => {
       if (provider !== "chatgpt") return;
+      hasIdentity = Boolean(res.connected);
       hasSharing = Boolean(res.sharing);
-      btnSignin.disabled = false;
-      btnSignout.disabled = !res.connected;
-      if (res.connected) {
-        chatgptStatus.textContent = `연결됨: ${res.email || "ChatGPT 계정"}` +
-          (hasSharing ? " · 플랜 사용 허용됨" : " · 플랜 사용 권한 미허용 (다시 로그인해 권한 허용)");
-      } else {
-        chatgptStatus.textContent = "ChatGPT 계정 로그인 필요 (로그인 후 새로고침)";
-      }
+      // Preserve existing identity and plan grants: do not downgrade by signing in again.
+      btnSignin.disabled = hasIdentity;
+      btnEnablePlan.disabled = !hasIdentity || hasSharing;
+      btnSignout.disabled = !hasIdentity;
+      identityStatus.textContent = hasIdentity
+        ? `계정 로그인: 성공 (${res.email || 'ChatGPT 계정'})`
+        : "계정 로그인: 미연결";
+      planStatus.textContent = hasSharing
+        ? "GPT 사용 권한: 동의 확인됨 (실제 모델 호출은 별도 검증)"
+        : "GPT 사용 권한: 미승인 (로그인 후 별도 요청)";
+      chatgptStatus.textContent = hasIdentity ? "ChatGPT 신원 인증 완료" : "ChatGPT 신원 인증 필요";
+      const last = res.lastAuthError;
+      authError.hidden = !last?.message;
+      authError.textContent = last?.message ? `이전 ${last.mode === 'plan' ? 'GPT 권한' : '로그인'} 요청 실패: ${last.message}` : "";
+      chatgptCatalogReady = false;
       loadModels();
     }).catch(() => {
       if (provider !== "chatgpt") return;
+      hasIdentity = false;
       hasSharing = false;
+      chatgptCatalogReady = false;
       btnSignin.disabled = true;
+      btnEnablePlan.disabled = true;
       btnSignout.disabled = true;
-      chatgptStatus.textContent = "인증 도우미 연결 실패. 설치·연결 튜토리얼을 확인하세요.";
+      btnSolve.disabled = true;
+      identityStatus.textContent = "계정 로그인: 확인 불가";
+      planStatus.textContent = "GPT 사용 권한: 확인 불가";
+      chatgptStatus.textContent = "인증 도우미 연결 실패. 설치 튜토리얼을 확인하세요.";
       loadModels();
     });
   }
@@ -381,7 +410,13 @@
 
   btnSignin.addEventListener("click", () => {
     sendAction("START_CHATGPT_SIGNIN").then(() => {
-      setStatus("기본 브라우저에서 공식 로그인 창이 열립니다. 승인한 후 팝업에서 상태를 확인해주세요.", "success");
+      setStatus("브라우저에서 ChatGPT 계정 로그인을 완료하세요. GPT 플랜 권한은 요청하지 않습니다.", "success");
+    }).catch(err => { setStatus(err.message, "error"); showErrorModal(err.message); });
+  });
+  btnEnablePlan.addEventListener("click", () => {
+    if (!hasIdentity) return setStatus("먼저 계정 로그인을 완료해주세요.", "error");
+    sendAction("START_CHATGPT_PLAN_AUTH").then(() => {
+      setStatus("별도의 GPT 플랜 권한 동의 화면을 열었습니다. 거부되어도 기존 로그인은 유지됩니다.", "success");
     }).catch(err => { setStatus(err.message, "error"); showErrorModal(err.message); });
   });
   btnSignout.addEventListener("click", () => {
