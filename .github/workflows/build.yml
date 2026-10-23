@@ -43,18 +43,18 @@ jobs:
       - name: Produce extension ZIP and checksums
         shell: pwsh
         run: |
-          Compress-Archive -Path extension/* -DestinationPath dist/OnCo_Extension_v1.3.1.zip -CompressionLevel Optimal
-          @("commit=$env:GITHUB_SHA",'version=1.3.1') | Set-Content -Encoding utf8 dist/SOURCE_COMMIT.txt
-          $items = @('OnCo_Setup_v1.3.1.exe','OnCo_Extension_v1.3.1.zip','OnCoBridge.exe')
+          Compress-Archive -Path extension/* -DestinationPath dist/OnCo_Extension_v1.3.2.zip -CompressionLevel Optimal
+          @("commit=$env:GITHUB_SHA",'version=1.3.2') | Set-Content -Encoding utf8 dist/SOURCE_COMMIT.txt
+          $items = @('OnCo_Setup_v1.3.2.exe','OnCo_Extension_v1.3.2.zip','OnCoBridge.exe')
           $sum = foreach ($name in $items) { $entry = Get-FileHash -Algorithm SHA256 "dist/$name"; "$($entry.Hash.ToLowerInvariant())  $name" }
           $sum | Set-Content -Encoding ascii dist/SHA256SUMS.txt
           Get-ChildItem dist | Select-Object Name,Length
       - uses: actions/upload-artifact@v4
         with:
-          name: onco-v1.3.1-${{ github.sha }}
+          name: onco-v1.3.2-${{ github.sha }}
           path: |
-            dist/OnCo_Setup_v1.3.1.exe
-            dist/OnCo_Extension_v1.3.1.zip
+            dist/OnCo_Setup_v1.3.2.exe
+            dist/OnCo_Extension_v1.3.2.zip
             dist/OnCoBridge.exe
             dist/SHA256SUMS.txt
             dist/SOURCE_COMMIT.txt
