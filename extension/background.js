@@ -244,7 +244,7 @@ async function resolveRequestedModel(apiKey, requestedModel, { forceRefresh = fa
 // OpenAI API / ChatGPT 공식 로그인 연결
 // ──────────────────────────────────────────────
 const OPENAI_API_ROOT = "https://api.openai.com/v1";
-const CHATGPT_BRIDGE_ROOT = "http://127.0.0.1:18744";
+const CHATGPT_NATIVE_HOST = "org.onco.ai_solver";
 const AUTO_OPENAI_MODEL = "__auto_openai_gpt__";
 const AUTO_CHATGPT_MODEL = "__auto_chatgpt_gpt__";
 const OPENAI_MODEL_CACHE = "onco_openai_model_catalog";
@@ -376,62 +376,35 @@ async function callOpenAI(apiKey, problemText, model, language) {
   return extractCode(raw);
 }
 
-async function callChatGPTBridge(path, { method = "GET", data = null, token = null } = {}) {
-  const headers = { "Content-Type": "application/json" };
-  if (token) headers["X-OnCo-Bridge-Token"] = token;
-  let response;
-  try {
-    response = await fetch(CHATGPT_BRIDGE_ROOT + path, {
-      method, headers, body: data ? JSON.stringify(data) : undefined,
-      redirect: "error", signal: AbortSignal.timeout(250000)
+async function callChatGPTNative(action, data = null) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendNativeMessage(CHATGPT_NATIVE_HOST, { action, data }, response => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(`[EBRIDGE] 인증 도우미 연결 실패: ${chrome.runtime.lastError.message}. OnCo Setup에서 확장 연결을 확인해주세요.`));
+        return;
+      }
+      if (!response?.success) reject(new Error(response?.error || '[EBRIDGE] 인증 도우미 작업에 실패했습니다.'));
+      else resolve(response);
     });
-  } catch (err) {
-    throw new Error(`[EBRIDGE] 로컬 ChatGPT 로그인 도우미에 연결할 수 없습니다. (127.0.0.1:18744) — ${err.message}`);
-  }
-  if (!response.ok) throw await parseOpenAIError(response, "ChatGPT 도우미");
-  return await response.json();
-}
-
-async function getBridgeToken() {
-  const data = await chrome.storage.local.get("onco_bridge_token");
-  return data.onco_bridge_token || "";
+  });
 }
 
 async function getChatGPTStatus() {
-  await callChatGPTBridge("/health");
-  const token = await getBridgeToken();
-  if (!token) return { available: true, paired: false, connected: false, sharing: false };
-  try {
-    const status = await callChatGPTBridge("/status", { token });
-    return { available: true, paired: true, ...status };
-  } catch (err) {
-    if (err.status === 401) {
-      await chrome.storage.local.remove("onco_bridge_token");
-      return { available: true, paired: false, connected: false, sharing: false };
-    }
-    throw err;
-  }
+  const result = await callChatGPTNative('status');
+  return { available: true, connected: Boolean(result.connected), sharing: Boolean(result.sharing), email: result.email || '' };
 }
 
 async function getChatGPTModels() {
-  const token = await getBridgeToken();
-  if (!token) throw new Error("[ENOPAIR] ChatGPT 도우미를 연결해주세요.");
-  const result = await callChatGPTBridge("/models", { token });
-  return {
-    models: (result.models || []).map(m => ({ ...m, family: "chatgpt", specialized: false })),
-    updatedAt: Date.now(), stale: false
-  };
+  const result = await callChatGPTNative('models');
+  return { models: (result.models || []).map(m => ({ ...m, family: 'chatgpt', specialized: false })),
+    updatedAt: Date.now(), stale: false };
 }
 
 async function callChatGPTModel(problemText, model, language) {
-  const token = await getBridgeToken();
-  if (!token) throw new Error("[ENOPAIR] ChatGPT 도우미 연결이 필요합니다.");
-  const result = await callChatGPTBridge("/solve", {
-    method: "POST", token,
-    data: { model, instructions: SYSTEM_PROMPT(language), input: `문제:\n${problemText}` }
-  });
-  const code = extractCode(result?.text || "");
-  if (!code) throw new Error("[EEMPTY] ChatGPT 계정 응답이 비어 있습니다.");
+  const result = await callChatGPTNative('solve',
+    { model, instructions: SYSTEM_PROMPT(language), input: `문제:\n${problemText}` });
+  const code = extractCode(result?.text || '');
+  if (!code) throw new Error('[EEMPTY] ChatGPT 계정 응답이 비어 있습니다.');
   return code;
 }
 
@@ -770,7 +743,7 @@ chrome.commands.onCommand.addListener((command) => {
 // ──────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // 외부 페이지 콘텐츠 스크립트가 API 키나 로그인 도우미 제어 메시지를 보내지 못하게 방지.
-  const privilegedActions = new Set(["GET_MODELS", "GET_CHATGPT_STATUS", "PAIR_CHATGPT_BRIDGE", "START_CHATGPT_SIGNIN", "LOGOUT_CHATGPT"]);
+  const privilegedActions = new Set(["GET_MODELS", "GET_CHATGPT_STATUS", "START_CHATGPT_SIGNIN", "LOGOUT_CHATGPT"]);
   if (sender.tab && privilegedActions.has(message?.action)) {
     sendResponse({ success: false, error: "팝업에서만 실행 가능한 작업입니다." });
     return false;
@@ -807,34 +780,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch(err => sendResponse({ success: false, available: false, error: err.message }));
     return true;
   }
-  if (message.action === "PAIR_CHATGPT_BRIDGE") {
-    (async () => {
-      const code = String(message.code || "").trim();
-      if (!/^[0-9A-Fa-f]{12}$/.test(code)) throw new Error("12자리 연결 코드를 입력해주세요.");
-      const result = await callChatGPTBridge("/pair", { method: "POST", data: { code } });
-      if (!result.token) throw new Error("도우미 연결 토큰을 받지 못했습니다.");
-      await chrome.storage.local.set({ onco_bridge_token: result.token });
-      sendResponse({ success: true });
-    })().catch(err => sendResponse({ success: false, error: err.message }));
-    return true;
-  }
+
   if (message.action === "START_CHATGPT_SIGNIN") {
-    (async () => {
-      const token = await getBridgeToken();
-      if (!token) throw new Error("먼저 도우미를 연결해주세요.");
-      const result = await callChatGPTBridge("/signin", { method: "POST", token });
-      if (!result.url?.startsWith("https://auth.openai.com/")) throw new Error("로그인 주소 검증 실패");
-      await chrome.tabs.create({ url: result.url });
-      sendResponse({ success: true });
-    })().catch(err => sendResponse({ success: false, error: err.message }));
+    callChatGPTNative('signin').then(result => sendResponse({ success: true, ...result }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
     return true;
   }
   if (message.action === "LOGOUT_CHATGPT") {
-    (async () => {
-      const token = await getBridgeToken();
-      await callChatGPTBridge("/logout", { method: "POST", token });
-      sendResponse({ success: true });
-    })().catch(err => sendResponse({ success: false, error: err.message }));
+    callChatGPTNative('logout').then(() => sendResponse({ success: true }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
     return true;
   }
 

@@ -1,0 +1,59 @@
+name: CI build Windows (one build)
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.4'
+      - name: Verify before packaging
+        shell: pwsh
+        run: |
+          node --test tests/*.mjs
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Produce self-contained native messaging executable
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          node --experimental-sea-config bridge/sea-config.json
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Copy-Item (Get-Command node).Source dist/OnCoBridge.exe
+          npx --yes postject@1.0.0-alpha.6 dist/OnCoBridge.exe NODE_SEA_BLOB dist/sea-prep.blob --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          node tests/native-smoke.cjs dist/OnCoBridge.exe
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Build Inno Setup installer
+        shell: pwsh
+        run: |
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (!(Test-Path $iscc)) { choco install innosetup --yes --no-progress; if ($LASTEXITCODE -ne 0) { exit 1 } }
+          & $iscc installer/onco.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Produce extension ZIP and checksums
+        shell: pwsh
+        run: |
+          Compress-Archive -Path extension/* -DestinationPath dist/OnCo_Extension_v1.3.0.zip -CompressionLevel Optimal
+          @("commit=$env:GITHUB_SHA",'version=1.3.0') | Set-Content -Encoding utf8 dist/SOURCE_COMMIT.txt
+          $items = @('OnCo_Setup_v1.3.0.exe','OnCo_Extension_v1.3.0.zip','OnCoBridge.exe')
+          $sum = foreach ($name in $items) { $entry = Get-FileHash -Algorithm SHA256 "dist/$name"; "$($entry.Hash.ToLowerInvariant())  $name" }
+          $sum | Set-Content -Encoding ascii dist/SHA256SUMS.txt
+          Get-ChildItem dist | Select-Object Name,Length
+      - uses: actions/upload-artifact@v4
+        with:
+          name: onco-v1.3.0-${{ github.sha }}
+          path: |
+            dist/OnCo_Setup_v1.3.0.exe
+            dist/OnCo_Extension_v1.3.0.zip
+            dist/OnCoBridge.exe
+            dist/SHA256SUMS.txt
+            dist/SOURCE_COMMIT.txt
+          if-no-files-found: error
+          retention-days: 30
