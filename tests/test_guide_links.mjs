@@ -63,7 +63,7 @@ assert.match(nativeSource, /shell: false/);
 assert.match(nativeSource, /if \(guideUri\) \{\s*await openExtensionManager\(guideUri\)/);
 
 const installer = await readFile(join(root, 'installer/onco.iss'), 'utf8');
-assert.match(installer, /#define AppVersion "1\.3\.2"/);
+assert.match(installer, /#define AppVersion "1\.3\.3"/);
 assert.match(installer, /Root: HKCU; Subkey: "Software\\Classes\\onco-ai-solver"; ValueType: string; ValueName: "URL Protocol"/);
 assert.match(installer, /Root: HKCU; Subkey: "Software\\Classes\\onco-ai-solver"; ValueType: string; ValueName: "";.*Flags: uninsdeletekey/);
 assert.match(installer, /ValueData: """\{app\}\\bridge\\OnCoBridge\.exe"" ""%1"""/);
