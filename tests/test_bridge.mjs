@@ -1,70 +1,51 @@
-import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+// v1.3.0 OAuth / Native Messaging contract regression test.
+// The v1.2.0 fixed-port pairing server no longer exists.
 import assert from 'node:assert/strict';
-const extOrigin = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { createRequire } from 'node:module';
+import vm from 'node:vm';
+
 const appRoot = resolve(import.meta.dirname, '..');
-const tempHome = await mkdtemp(join(tmpdir(), 'onco-bridge-test-'));
-const server = spawn(process.execPath, [join(appRoot, 'chatgpt_bridge/bridge.mjs')], {
-  cwd: appRoot, env: { ...process.env, HOME: tempHome, USERPROFILE: tempHome },
-  stdio: ['ignore', 'pipe', 'pipe']
-});
-let output = '';
-const started = new Promise((resolveStarted, reject) => {
-  const watchdog = setTimeout(() => reject(new Error('Bridge startup timeout: ' + output)), 9000);
-  server.stdout.on('data', chunk => {
-    output += chunk.toString('utf8');
-    if (/연결 코드:\s*([0-9A-F]{12})/.test(output)) {
-      clearTimeout(watchdog);
-      resolveStarted(output.match(/연결 코드:\s*([0-9A-F]{12})/)[1]);
-    }
-  });
-  server.stderr.on('data', chunk => { output += chunk.toString(); });
-  server.on('exit', code => reject(new Error('Bridge early exit ' + code + ': ' + output)));
-});
-async function req(path, init = {}) {
-  return fetch('http://127.0.0.1:18744' + path, {
-    ...init, headers: { Origin: extOrigin, 'Content-Type': 'application/json', ...init.headers }
-  });
-}
-try {
-  const code = await started;
-  assert.match(code, /^[0-9A-F]{12}$/);
-  assert.equal((await req('/health')).status, 200);
-  assert.equal((await fetch('http://127.0.0.1:18744/health', { headers: { Origin: 'https://attacker.example' } })).status, 403);
-  assert.equal((await req('/status')).status, 401);
-  assert.equal((await req('/pair', { method: 'POST', body: JSON.stringify({ code: 'AAAAAAAAAAAA' }) })).status, 401);
-  const pairRes = await req('/pair', { method: 'POST', body: JSON.stringify({ code }) });
-  assert.equal(pairRes.status, 200);
-  const pair = await pairRes.json();
-  assert.match(pair.token, /^[a-zA-Z0-9_-]{40,}$/);
-  const headers = { 'X-OnCo-Bridge-Token': pair.token };
-  assert.equal((await req('/status', { headers })).status, 200);
-  const status = await (await req('/status', { headers })).json();
-  assert.equal(status.connected, false);
-  assert.equal(status.sharing, false);
-  assert.equal((await req('/models', { headers })).status, 401);
-  assert.equal((await req('/solve', { method: 'POST', headers, body: JSON.stringify({ model: 'fake', input: 'hello' }) })).status, 401);
-  const signinResp = await req('/signin', { method: 'POST', headers, body: '{}' });
-  assert.equal(signinResp.status, 200);
-  const signIn = await signinResp.json();
-  const url = new URL(signIn.url);
-  assert.equal(url.origin, 'https://auth.openai.com');
-  assert.equal(url.searchParams.get('redirect_uri'), 'http://127.0.0.1:18744/auth/callback');
-  assert.equal(url.searchParams.get('client_id'), 'dynamic_agent_client');
-  assert.equal(url.searchParams.get('code_challenge_method'), 'S256');
-  assert.match(url.searchParams.get('ext_agent_host_id'), /^urn:uuid:/);
-  assert.ok(url.searchParams.get('scope').includes('chatgpt.tokens.use.direct'));
-  const mismatched = await req('/auth/callback?state=wrong&code=fake', { headers: {} });
-  assert.equal(mismatched.status, 400);
-  const logoutRes = await req('/logout', { method: 'POST', headers, body: '{}' });
-  assert.equal(logoutRes.status, 200);
-  const registration = JSON.parse(await readFile(join(tempHome, '.onco-ai-solver/chatgpt-registration.json'), 'utf8'));
-  assert.match(registration.hostId, /^urn:uuid:/);
-  assert.equal(Object.hasOwn(registration, 'access_token'), false);
-  console.log('PASS: loopback origin enforcement, pairing, OAuth URI/state, no pre-login inference, token-free registration storage');
-} finally {
-  server.kill('SIGTERM');
-  await rm(tempHome, { recursive: true, force: true, maxRetries: 2 });
-}
+const source = await readFile(resolve(appRoot, 'bridge/main.cjs'), 'utf8');
+const mainCall = source.lastIndexOf('\nmain().catch(');
+assert.ok(mainCall > 0, 'Cannot isolate Native Messaging bridge for OAuth contract test');
+
+const moduleShim = { exports: {} };
+vm.runInNewContext(
+  source.slice(0, mainCall) + '\nmodule.exports = { beginSignin, completeSignin };',
+  {
+    module: moduleShim,
+    require: createRequire(import.meta.url),
+    process, Buffer, console, URL, URLSearchParams, fetch, AbortSignal,
+    TextDecoder, setTimeout, clearTimeout
+  },
+  { filename: 'bridge/main.cjs', timeout: 2000 }
+);
+
+const { beginSignin, completeSignin } = moduleShim.exports;
+const redirectUri = 'http://127.0.0.1:43913/auth/callback';
+const authorize = new URL(beginSignin(redirectUri));
+assert.equal(authorize.origin, 'https://auth.openai.com');
+assert.equal(authorize.pathname, '/api/accounts/authorize');
+assert.equal(authorize.searchParams.get('client_id'), 'dynamic_agent_client');
+assert.equal(authorize.searchParams.get('redirect_uri'), redirectUri);
+assert.equal(authorize.searchParams.get('response_type'), 'code');
+assert.equal(authorize.searchParams.get('code_challenge_method'), 'S256');
+assert.ok(authorize.searchParams.get('scope').split(/\s+/).includes('chatgpt.tokens.use.direct'));
+assert.match(authorize.searchParams.get('state'), /^[A-Za-z0-9_-]{20,}$/);
+assert.match(authorize.searchParams.get('nonce'), /^[A-Za-z0-9_-]{20,}$/);
+assert.match(authorize.searchParams.get('code_challenge'), /^[A-Za-z0-9_-]{40,}$/);
+assert.match(authorize.searchParams.get('ext_agent_host_id'), /^urn:uuid:/);
+
+// Invalid callbacks must be rejected before any token request is sent.
+await assert.rejects(
+  completeSignin(new URL(redirectUri + '?state=invalid&code=fake'), redirectUri),
+  /OAuth state/
+);
+const next = new URL(beginSignin(redirectUri));
+assert.notEqual(next.searchParams.get('state'), authorize.searchParams.get('state'));
+assert.notEqual(next.searchParams.get('code_challenge'), authorize.searchParams.get('code_challenge'));
+assert.ok(source.includes('server.listen(0, HOST, resolve)'), 'Use an ephemeral callback listener port');
+assert.ok(!source.includes('127.0.0.1:18744'), 'Do not restore legacy fixed-port pairing');
+console.log('PASS: ChatGPT OAuth PKCE, ephemeral callback, state rejection, no legacy pairing server');
