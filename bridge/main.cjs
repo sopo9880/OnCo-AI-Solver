@@ -2,8 +2,8 @@
 const { createServer } = require('node:http');
 const { randomBytes, randomUUID, createHash, createPublicKey, createVerify, constants, timingSafeEqual } = require('node:crypto');
 const { homedir } = require('node:os');
-const { join } = require('node:path');
-const { mkdir, readFile, rename, writeFile, rm, open } = require('node:fs/promises');
+const { join, win32 } = require('node:path');
+const { mkdir, readFile, rename, writeFile, rm, open, access } = require('node:fs/promises');
 const { spawn } = require('node:child_process');
 
 
@@ -22,6 +22,74 @@ const PLAN_SCOPES = 'openid offline_access resource.invoke chatgpt.tokens.use.di
 // Keep only scopes needed to identify the account and access an explicitly approved plan.
 const SESSION_SCOPES = new Set(['openid', 'offline_access', 'resource.invoke', 'chatgpt.tokens.use.direct']);
 const ERROR_PATH = join(STORAGE_DIR, 'last-auth-error.json');
+
+// Installation-guide deep links are intentionally restricted to two fixed settings pages.
+// No arbitrary URL, command, executable or shell argument may come from a browser link.
+const GUIDE_SCHEME = 'onco-ai-solver:';
+const GUIDE_TARGETS = Object.freeze({
+  chrome: Object.freeze({ url: 'chrome://extensions', exe: 'chrome.exe', directory: ['Google', 'Chrome', 'Application'] }),
+  whale: Object.freeze({ url: 'whale://extensions', exe: 'whale.exe', directory: ['Naver', 'Naver Whale', 'Application'] })
+});
+function guideBrowserFromLink(uri) {
+  if (typeof uri !== 'string' || uri.length > 100) return null;
+  const found = /^onco-ai-solver:\/\/(chrome|whale)-extensions\/?$/i.exec(uri);
+  return found ? found[1].toLowerCase() : null;
+}
+function guideUriFromArgs(argv, executablePath) {
+  const argumentIndex = String(executablePath).toLowerCase().endsWith('oncobridge.exe') ? 1 : 2;
+  const value = argv[argumentIndex];
+  return argv.length === argumentIndex + 1 && typeof value === 'string' &&
+    value.toLowerCase().startsWith(GUIDE_SCHEME) ? value : null;
+}
+function browserExecutableCandidates(browser, env = process.env) {
+  const target = GUIDE_TARGETS[browser];
+  if (!target) return [];
+  // Windows supports both system-wide and current-user browser installations.
+  const roots = [env.LOCALAPPDATA, env.ProgramFiles, env['ProgramFiles(x86)'], env.ProgramW6432];
+  return [...new Set(roots.filter(Boolean).map(root => join(root, ...target.directory, target.exe)))];
+}
+async function browserRegistryAppPath(executable) {
+  const keys = [
+    'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\' + executable,
+    'HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\' + executable
+  ];
+  for (const key of keys) {
+    const result = await new Promise(resolve => {
+      const child = spawn('reg.exe', ['query', key, '/ve'], { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+      let stdout = '';
+      child.stdout.on('data', part => { if (stdout.length < 8192) stdout += part.toString(); });
+      child.on('error', () => resolve(null));
+      child.on('close', code => resolve(code === 0 ? stdout : null));
+    });
+    const value = result && /\sREG_(?:SZ|EXPAND_SZ)\s+([^\r\n]+)/.exec(result);
+    const path = value ? value[1].trim().replace(/^"|"$/g, '') : '';
+    if (path && win32.basename(path).toLowerCase() === executable.toLowerCase()) {
+      try { await access(path); return path; } catch (_) {}
+    }
+  }
+  return null;
+}
+async function openExtensionManager(uri) {
+  const browser = guideBrowserFromLink(uri);
+  if (!browser) throw Error('설치 안내에서 허용하지 않은 주소입니다.');
+  if (process.platform !== 'win32') throw Error('확장 관리 화면 바로 열기는 Windows 설치판 전용입니다.');
+  const target = GUIDE_TARGETS[browser];
+  let executable = null;
+  for (const candidate of browserExecutableCandidates(browser)) {
+    try { await access(candidate); executable = candidate; break; } catch (_) {}
+  }
+  executable ||= await browserRegistryAppPath(target.exe);
+  if (!executable) throw Error('설치된 ' + (browser === 'chrome' ? 'Chrome' : 'Whale') + ' 브라우저를 찾지 못했습니다. 안내 페이지에서 주소 복사를 이용해주세요.');
+  // Spawn the selected browser directly; never invoke cmd.exe, PowerShell or the shell.
+  await new Promise((resolve, reject) => {
+    const child = spawn(executable, ['--new-tab', target.url], {
+      detached: true, windowsHide: true, stdio: 'ignore', shell: false
+    });
+    child.once('error', reject);
+    child.once('spawn', () => { child.unref(); resolve(); });
+  });
+}
+
 let pending = null;
 let session = null;
 let busy = false;
@@ -494,7 +562,7 @@ function writeNativeMessage(value) {
 async function dispatch(msg) {
   const action = msg?.action;
   switch (action) {
-    case 'ping': return { ready: true, version: '1.3.1' };
+    case 'ping': return { ready: true, version: '1.3.2' };
     case 'status': return status();
     case 'signin':
       if ((await status()).connected) return { started: false, alreadyConnected: true };
@@ -507,7 +575,13 @@ async function dispatch(msg) {
   }
 }
 async function main() {
+  const guideUri = guideUriFromArgs(process.argv, process.execPath);
   try {
+    // This path is invoked by Windows URL Protocol, not by Chrome Native Messaging.
+    if (guideUri) {
+      await openExtensionManager(guideUri);
+      return;
+    }
     await loadRegistration();
     await loadSession();
     if (process.argv.includes('--login-worker')) {
@@ -518,6 +592,11 @@ async function main() {
     const result = await dispatch(incoming);
     writeNativeMessage({ success: true, ...result });
   } catch (err) {
+    if (guideUri) {
+      console.error('확장 관리 화면 열기 실패:', serializeError(err));
+      process.exitCode = 1;
+      return;
+    }
     // stdout stays clean so Chrome can decode the native frame.
     if (!process.argv.includes('--login-worker')) writeNativeMessage({ success: false, error: serializeError(err) });
     else console.error('ChatGPT 로그인:', serializeError(err));

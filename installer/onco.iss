@@ -1,4 +1,4 @@
-#define AppVersion "1.3.1"
+#define AppVersion "1.3.2"
 #define ExtensionId "ljgoegcgbhhjhgpmdlnmnodadcdclgfm"
 [Setup]
 AppId={{6E2C201A-FF2F-45B3-898D-B6977CA8C167}
@@ -27,6 +27,12 @@ Source: "tutorial\*"; DestDir: "{app}\tutorial"; Flags: ignoreversion recursesub
 [Registry]
 Root: HKCU; Subkey: "Software\Google\Chrome\NativeMessagingHosts\org.onco.ai_solver"; ValueType: string; ValueName: ""; ValueData: "{app}\bridge\host.json"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Naver\Naver Whale\NativeMessagingHosts\org.onco.ai_solver"; ValueType: string; ValueName: ""; ValueData: "{app}\bridge\host.json"; Flags: uninsdeletekey
+; OnCo setup guide URI protocol. The bridge only opens allowlisted Chrome/Whale settings.
+; Per-user registration needs no administrator elevation and is removed on uninstall.
+Root: HKCU; Subkey: "Software\Classes\onco-ai-solver"; ValueType: string; ValueName: ""; ValueData: "URL:OnCo AI Solver Setup Guide"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\onco-ai-solver"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKCU; Subkey: "Software\Classes\onco-ai-solver\shell\open"; ValueType: string; ValueName: "FriendlyAppName"; ValueData: "OnCo AI Solver"
+Root: HKCU; Subkey: "Software\Classes\onco-ai-solver\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\bridge\OnCoBridge.exe"" ""%1"""
 
 [Icons]
 Name: "{group}\OnCo 설치 및 확장 연결 안내"; Filename: "{app}\tutorial\index.html"
