@@ -1,66 +1,47 @@
-// Regression: migrate legacy v1.3.0 DPAPI sessions without retaining optional
-// profile fields or the raw ID token. Keep the existing account and plan grant.
+// Codex migration preserves old encrypted OAuth credentials without reading them.
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
-import { createRequire } from 'node:module';
+import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join,resolve} from 'node:path';
+import {createRequire} from 'node:module';
 import vm from 'node:vm';
-
-const work = await mkdtemp(join(tmpdir(), 'onco-privacy-'));
-const root = resolve(import.meta.dirname, '..');
-const source = await readFile(join(root, 'bridge/main.cjs'), 'utf8');
-const end = source.lastIndexOf('\nmain().catch(');
-assert.ok(end > 0);
-const processStub = { ...process, env: { ...process.env, ONCO_BRIDGE_DATA_DIR: work } };
-const context = { process: processStub, require: createRequire(import.meta.url),
-  Buffer, URL, URLSearchParams, console, TextDecoder, AbortSignal,
-  setTimeout, clearTimeout, module: { exports: {} },
-  fetch: () => { throw Error('Network not allowed in privacy test'); } };
-
-// DPAPI is stubbed to an identity transform only inside this isolated VM.
-// The production path still uses Windows CurrentUser DPAPI protection.
-vm.runInNewContext(source.slice(0, end) + `
-  dpapi = async value => value;
-  module.exports = { loadRegistration, loadSession, status, minimizeSession };
-`, context, { filename: 'bridge/main.cjs', timeout: 2000 });
-
-const { loadRegistration, loadSession, status } = context.module.exports;
-try {
-  const hostId = 'urn:uuid:8f397755-3412-434f-922a-dc07486df411';
-  const registration = { hostId, clientId: 'oaiapp_previous_account', subject: 'stable-team-sub' };
-  await writeFile(join(work, 'chatgpt-registration.json'), JSON.stringify(registration));
-  const legacy = {
-    subject: 'stable-team-sub', clientId: registration.clientId,
-    accessToken: 'existing-plan-access', refreshToken: 'existing-plan-refresh',
-    expiresAt: Date.now() + 20 * 60_000,
-    scopes: ['openid', 'profile', 'email', 'offline_access', 'resource.invoke', 'chatgpt.tokens.use.direct'],
-    email: 'private@example.test', name: 'Private Name', picture: 'https://example.test/private.jpg',
-    idToken: 'jwt-containing-profile-claims'
+const root=resolve(import.meta.dirname,'..');
+const source=await readFile(join(root,'bridge/main.cjs'),'utf8');
+const entry=source.lastIndexOf('\nmain().catch(');
+const work=await mkdtemp(join(tmpdir(),'onco-legacy-'));
+const processStub={...process,env:{...process.env,ONCO_BRIDGE_DATA_DIR:work}};
+const registry=join(work,'chatgpt-registration.json');
+const legacy=join(work,'chatgpt-session.dpapi');
+const registryPayload=JSON.stringify({hostId:'urn:uuid:old',clientId:'old-id',subject:'old-user'});
+const legacyPayload='DPAPI_EXISTING_ENCRYPTED_DATA_DO_NOT_TOUCH';
+try{
+  await writeFile(registry,registryPayload);
+  await writeFile(legacy,legacyPayload);
+  const shim={exports:{}};
+  vm.runInNewContext(source.slice(0,entry)+'\nmodule.exports={status,codex,CODEX_HOME};',{
+    require:createRequire(import.meta.url),process:processStub,console,module:shim,Buffer,URL,setTimeout,clearTimeout
+  },{filename:'bridge/main.cjs',timeout:3000});
+  const {status,codex,CODEX_HOME}=shim.exports;
+  codex.start=async()=>{};
+  codex.call=async method=>{
+    if(method==='account/read')return {account:{
+      type:'chatgpt',planType:'team',email:'private@example.test',
+      name:'Private User',picture:'https://example.test/user.png',
+      accessToken:'sensitive-access',refreshToken:'sensitive-refresh'
+    }};
+    throw Error('Unexpected '+method);
   };
-  const sessionPath = join(work, 'chatgpt-session.dpapi');
-  await writeFile(sessionPath, JSON.stringify(legacy));
-  await loadRegistration();
-  await loadSession();
-  const result = await status();
-  assert.equal(result.connected, true);
-  assert.equal(result.sharing, true);
-  assert.equal(Object.hasOwn(result, 'email'), false);
-  const migrated = JSON.parse(await readFile(sessionPath, 'utf8'));
-  assert.deepEqual(Object.keys(migrated).sort(),
-    ['subject', 'clientId', 'accessToken', 'refreshToken', 'expiresAt', 'scopes'].sort());
-  assert.equal(migrated.subject, legacy.subject);
-  assert.equal(migrated.clientId, legacy.clientId);
-  assert.equal(migrated.accessToken, legacy.accessToken);
-  assert.equal(migrated.refreshToken, legacy.refreshToken);
-  assert.equal(migrated.expiresAt, legacy.expiresAt);
-  assert.deepEqual(Array.from(migrated.scopes),
-    ['openid', 'offline_access', 'resource.invoke', 'chatgpt.tokens.use.direct']);
-  for (const personal of ['email', 'name', 'picture', 'idToken']) {
-    assert.ok(!JSON.stringify(migrated).includes(personal + (personal === 'idToken' ? '' : '\"')),
-      `Legacy profile field should be removed: ${personal}`);
+  const state=await status();
+  assert.equal(state.connected,true);
+  for(const name of ['email','name','picture','accessToken','refreshToken','clientId','subject']){
+    assert.equal(Object.hasOwn(state,name),false,name+' must not leave the native host');
   }
-  console.log('PASS: legacy session profile and raw ID token removed; account and plan grant preserved');
-} finally {
-  await rm(work, { recursive: true, force: true });
-}
+  const json=JSON.stringify(state);
+  for(const bad of ['private@example.test','Private User','sensitive-access','sensitive-refresh'])assert.ok(!json.includes(bad));
+  assert.equal(await readFile(registry,'utf8'),registryPayload);
+  assert.equal(await readFile(legacy,'utf8'),legacyPayload);
+  assert.equal(CODEX_HOME,join(work,'codex'),'Codex credentials must use an OnCo-isolated home');
+  assert.ok(!/\b(?:readFile|writeFile|rename|rm)\s*\(\s*[^)]*(?:chatgpt-session\.dpapi|chatgpt-registration\.json)/.test(source),
+    'new login path must never read, delete or overwrite legacy credential files');
+  console.log('PASS: legacy DPAPI and registration files preserved; no ChatGPT identity or tokens exposed');
+}finally{await rm(work,{recursive:true,force:true});}

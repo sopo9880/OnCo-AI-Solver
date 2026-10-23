@@ -146,7 +146,12 @@
   const chatgptSection = document.getElementById("chatgpt-section");
   const chatgptStatus = document.getElementById("chatgpt-status");
   const btnSignin = document.getElementById("btn-signin");
-  const btnEnablePlan = document.getElementById("btn-enable-plan");
+  const btnBrowserSignin = document.getElementById("btn-browser-signin");
+  const btnCancelLogin = document.getElementById("btn-cancel-login");
+  const codexLoginCode = document.getElementById("codex-login-code");
+  const codexUserCode = document.getElementById("codex-user-code");
+  const btnCopyLoginCode = document.getElementById("btn-copy-login-code");
+  const btnOpenLoginPage = document.getElementById("btn-open-login-page");
   const identityStatus = document.getElementById("chatgpt-identity-status");
   const planStatus = document.getElementById("chatgpt-plan-status");
   const authError = document.getElementById("chatgpt-auth-error");
@@ -170,6 +175,8 @@
   const storedKeys = { gemini: false, openai: false };
   let hasSharing = false;
   let hasIdentity = false;
+  let pendingCodexLogin = null;
+  let loginStatusTimer = null;
   let chatgptCatalogReady = false;
   let modelsRequestId = 0;
 
@@ -295,45 +302,63 @@
       });
   }
 
+  function allowedCodexUrl(value) {
+    try {
+      const u = new URL(value);
+      return (u.origin === "https://auth.openai.com" || u.origin === "https://chatgpt.com")
+        && !u.username && !u.password ? u.href : null;
+    } catch (_) { return null; }
+  }
+
+  function renderCodexLogin(login) {
+    pendingCodexLogin = login || null;
+    const isDevice = login?.mode === "device" && Boolean(login.userCode);
+    codexLoginCode.hidden = !isDevice;
+    codexUserCode.textContent = isDevice ? login.userCode : "";
+    btnOpenLoginPage.disabled = !isDevice || !allowedCodexUrl(login.verificationUrl);
+    btnCopyLoginCode.disabled = !isDevice;
+    btnCancelLogin.disabled = !login;
+    btnSignin.disabled = hasIdentity || Boolean(login);
+    btnBrowserSignin.disabled = hasIdentity || Boolean(login);
+  }
   function loadChatGPTStatus() {
     if (provider !== "chatgpt") return;
-    chatgptStatus.textContent = "인증 도우미 상태 확인 중...";
+    clearTimeout(loginStatusTimer);
+    chatgptStatus.textContent = "Codex 계정 연결 상태 확인 중...";
     sendAction("GET_CHATGPT_STATUS").then(res => {
       if (provider !== "chatgpt") return;
       hasIdentity = Boolean(res.connected);
       hasSharing = Boolean(res.sharing);
-      // Preserve existing identity and plan grants: do not downgrade by signing in again.
-      btnSignin.disabled = hasIdentity;
-      btnEnablePlan.disabled = !hasIdentity || hasSharing;
       btnSignout.disabled = !hasIdentity;
-      identityStatus.textContent = hasIdentity
-        ? "계정 로그인: 성공"
-        : "계정 로그인: 미연결";
-      planStatus.textContent = hasSharing
-        ? "GPT 사용 권한: 동의 확인됨 (실제 모델 호출은 별도 검증)"
-        : "GPT 사용 권한: 미승인 (로그인 후 별도 요청)";
-      chatgptStatus.textContent = hasIdentity ? "ChatGPT 신원 인증 완료" : "ChatGPT 신원 인증 필요";
+      identityStatus.textContent = hasIdentity ? "ChatGPT 계정: 로그인됨" : "ChatGPT 계정: 미연결";
+      planStatus.textContent = hasIdentity
+        ? "Codex 연결됨 · 모델 사용 가능 여부는 목록과 실제 요청으로 확인"
+        : "모델 사용 권한: 로그인 필요";
+      chatgptStatus.textContent = !res.available
+        ? (res.error || "Codex 실행 파일을 찾을 수 없습니다. 최신 Setup을 설치해주세요.")
+        : hasIdentity ? "ChatGPT · Codex 연결 완료" : "ChatGPT · Codex 로그인 필요";
       const last = res.lastAuthError;
       authError.hidden = !last?.message;
-      authError.textContent = last?.message ? `이전 ${last.mode === 'plan' ? 'GPT 권한' : '로그인'} 요청 실패: ${last.message}` : "";
+      authError.textContent = last?.message ? "이전 로그인 실패: " + last.message : "";
+      renderCodexLogin(res.login);
+      if (!res.available) {
+        btnSignin.disabled = true; btnBrowserSignin.disabled = true;
+      }
+      if (res.login) loginStatusTimer = setTimeout(loadChatGPTStatus, 3500);
       chatgptCatalogReady = false;
       loadModels();
-    }).catch(() => {
+    }).catch(err => {
       if (provider !== "chatgpt") return;
-      hasIdentity = false;
-      hasSharing = false;
-      chatgptCatalogReady = false;
-      btnSignin.disabled = true;
-      btnEnablePlan.disabled = true;
-      btnSignout.disabled = true;
-      btnSolve.disabled = true;
-      identityStatus.textContent = "계정 로그인: 확인 불가";
-      planStatus.textContent = "GPT 사용 권한: 확인 불가";
-      chatgptStatus.textContent = "인증 도우미 연결 실패. 설치 튜토리얼을 확인하세요.";
+      hasIdentity = false; hasSharing = false; chatgptCatalogReady = false;
+      btnCancelLogin.disabled = true; btnSignout.disabled = true;
+      identityStatus.textContent = "ChatGPT 계정: 확인 불가";
+      planStatus.textContent = "모델 사용 권한: 확인 불가";
+      chatgptStatus.textContent = "Codex 연결 실패: " + err.message;
+      renderCodexLogin(null);
+      btnSignin.disabled = true; btnBrowserSignin.disabled = true;
       loadModels();
     });
   }
-
   chrome.storage.local.get([
     "onco_provider", "onco_api_key", "onco_openai_api_key", ...Object.values(MODEL_KEYS)
   ], (data) => {
@@ -409,14 +434,38 @@
   btnUsage.addEventListener("click", () => chrome.tabs.create({ url: "https://chatgpt.com/settings/usage" }));
 
   btnSignin.addEventListener("click", () => {
-    sendAction("START_CHATGPT_SIGNIN").then(() => {
-      setStatus("브라우저에서 ChatGPT 계정 로그인을 완료하세요. GPT 플랜 권한은 요청하지 않습니다.", "success");
+    sendAction("START_CHATGPT_SIGNIN").then(res => {
+      renderCodexLogin(res.login);
+      setStatus("일회용 코드를 복사한 뒤 공식 페이지에서 ChatGPT에 로그인하세요.", "success");
+      if (provider === "chatgpt") loginStatusTimer = setTimeout(loadChatGPTStatus, 3500);
     }).catch(err => { setStatus(err.message, "error"); showErrorModal(err.message); });
   });
-  btnEnablePlan.addEventListener("click", () => {
-    if (!hasIdentity) return setStatus("먼저 계정 로그인을 완료해주세요.", "error");
-    sendAction("START_CHATGPT_PLAN_AUTH").then(() => {
-      setStatus("별도의 GPT 플랜 권한 동의 화면을 열었습니다. 거부되어도 기존 로그인은 유지됩니다.", "success");
+  btnBrowserSignin.addEventListener("click", () => {
+    sendAction("START_CHATGPT_BROWSER_SIGNIN").then(async res => {
+      const url = allowedCodexUrl(res.login?.authUrl);
+      if (!url) throw Error("Codex가 발급한 브라우저 로그인 주소가 올바르지 않습니다.");
+      renderCodexLogin(res.login);
+      await chrome.tabs.create({url});
+      setStatus("공식 ChatGPT 로그인 페이지를 열었습니다.", "success");
+    }).catch(err => { setStatus(err.message, "error"); showErrorModal(err.message); });
+  });
+  btnCopyLoginCode.addEventListener("click", async () => {
+    if (!pendingCodexLogin?.userCode) return;
+    try {
+      await navigator.clipboard.writeText(pendingCodexLogin.userCode);
+      setStatus("기기 로그인 코드를 복사했습니다.", "success");
+    } catch (err) { setStatus("코드를 복사하지 못했습니다. 화면에 표시된 코드를 직접 입력해주세요.", "error"); }
+  });
+  btnOpenLoginPage.addEventListener("click", () => {
+    const url = allowedCodexUrl(pendingCodexLogin?.verificationUrl);
+    if (!url) return setStatus("공식 인증 주소를 확인하지 못했습니다.", "error");
+    chrome.tabs.create({url});
+  });
+  btnCancelLogin.addEventListener("click", () => {
+    sendAction("CANCEL_CHATGPT_SIGNIN").then(() => {
+      renderCodexLogin(null);
+      setStatus("ChatGPT 로그인 요청을 취소했습니다.");
+      loadChatGPTStatus();
     }).catch(err => { setStatus(err.message, "error"); showErrorModal(err.message); });
   });
   btnSignout.addEventListener("click", () => {

@@ -376,31 +376,65 @@ async function callOpenAI(apiKey, problemText, model, language) {
   return extractCode(raw);
 }
 
+// Chrome's connectNative keeps the MV3 service worker and one Codex app-server
+// process alive through an asynchronous device-code login or model generation.
+let codexPort = null;
+let codexRequestSequence = 0;
+const codexRequests = new Map();
+function codexNativePort() {
+  if (codexPort) return codexPort;
+  const port = chrome.runtime.connectNative(CHATGPT_NATIVE_HOST);
+  codexPort = port;
+  port.onMessage.addListener(message => {
+    if (!message || message.kind === 'event') return;
+    const waiter = codexRequests.get(message.id);
+    if (!waiter) return;
+    codexRequests.delete(message.id);
+    clearTimeout(waiter.timer);
+    if (message.success) waiter.resolve(message);
+    else waiter.reject(new Error(message.error || '[EBRIDGE] Codex 작업이 실패했습니다.'));
+  });
+  port.onDisconnect.addListener(() => {
+    const details = chrome.runtime.lastError?.message || '인증 도우미 프로세스가 종료되었습니다.';
+    if (codexPort === port) codexPort = null;
+    for (const waiter of codexRequests.values()) {
+      clearTimeout(waiter.timer);
+      waiter.reject(new Error('[EBRIDGE] OnCo Codex 연결 종료: ' + details));
+    }
+    codexRequests.clear();
+  });
+  return port;
+}
 async function callChatGPTNative(action, data = null) {
+  const port = codexNativePort();
+  const id = ++codexRequestSequence;
   return new Promise((resolve, reject) => {
-    chrome.runtime.sendNativeMessage(CHATGPT_NATIVE_HOST, { action, data }, response => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(`[EBRIDGE] 인증 도우미 연결 실패: ${chrome.runtime.lastError.message}. OnCo Setup에서 확장 연결을 확인해주세요.`));
-        return;
-      }
-      if (!response?.success) reject(new Error(response?.error || '[EBRIDGE] 인증 도우미 작업에 실패했습니다.'));
-      else resolve(response);
-    });
+    const timeout = action === 'solve' ? 310000 : 75000;
+    const timer = setTimeout(() => {
+      codexRequests.delete(id);
+      reject(new Error('[EBRIDGE] Codex ' + action + ' 요청 시간이 초과됐습니다.'));
+    }, timeout);
+    codexRequests.set(id, {resolve, reject, timer});
+    try { port.postMessage({id,action,data}); }
+    catch (e) {
+      codexRequests.delete(id);
+      clearTimeout(timer);
+      reject(new Error('[EBRIDGE] 인증 도우미 전송 실패: ' + e.message));
+    }
   });
 }
-
 async function getChatGPTStatus() {
   const result = await callChatGPTNative('status');
-  return { available: true, connected: Boolean(result.connected), sharing: Boolean(result.sharing),
+  return { available: Boolean(result.available), connected: Boolean(result.connected), sharing: Boolean(result.sharing),
     identityStatus: result.identityStatus || (result.connected ? 'signed_in' : 'signed_out'),
     planStatus: result.planStatus || (result.sharing ? 'scope_granted' : 'not_authorized'),
-    lastAuthError: result.lastAuthError || null };
+    lastAuthError: result.lastAuthError || null, login: result.login || null, planType: result.planType || '', error: result.error || '' };
 }
 
 async function getChatGPTModels() {
   const status = await getChatGPTStatus();
   if (!status.connected) throw new Error('[ENOLOGIN] Sign in with ChatGPT first.');
-  if (!status.sharing) throw new Error('[EPLAN] Grant ChatGPT plan usage separately or select an API-key provider.');
+  if (!status.sharing) throw new Error('[EPLAN] Codex 모델 사용 권한이 없습니다. 작업공간 정책을 확인하거나 API 키 공급자를 선택해주세요.');
   const result = await callChatGPTNative('models');
   return { models: (result.models || []).map(m => ({ ...m, family: 'chatgpt', specialized: false })),
     updatedAt: Date.now(), stale: false };
@@ -749,7 +783,7 @@ chrome.commands.onCommand.addListener((command) => {
 // ──────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // 외부 페이지 콘텐츠 스크립트가 API 키나 로그인 도우미 제어 메시지를 보내지 못하게 방지.
-  const privilegedActions = new Set(["GET_MODELS", "GET_CHATGPT_STATUS", "START_CHATGPT_SIGNIN", "START_CHATGPT_PLAN_AUTH", "LOGOUT_CHATGPT"]);
+  const privilegedActions = new Set(["GET_MODELS", "GET_CHATGPT_STATUS", "START_CHATGPT_SIGNIN", "START_CHATGPT_BROWSER_SIGNIN", "CANCEL_CHATGPT_SIGNIN", "LOGOUT_CHATGPT"]);
   if (sender.tab && privilegedActions.has(message?.action)) {
     sendResponse({ success: false, error: "팝업에서만 실행 가능한 작업입니다." });
     return false;
@@ -772,7 +806,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         autoModel = pickAutoOpenAIModel(result.models);
       } else {
         result = await getChatGPTModels();
-        autoModel = result.models[0]?.id || ""; // OAuth 목록은 서버 표시 순서 존중.
+        autoModel = result.models.find(m=>m.isDefault)?.id || result.models[0]?.id || ""; // Codex 계정에서 제공한 모델 목록
       }
       sendResponse({ success: true, provider, models: result.models,
         updatedAt: result.updatedAt, stale: result.stale,
@@ -792,8 +826,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch(err => sendResponse({ success: false, error: err.message }));
     return true;
   }
-  if (message.action === "START_CHATGPT_PLAN_AUTH") {
-    callChatGPTNative('enable-plan').then(result => sendResponse({ success: true, ...result }))
+  if (message.action === "START_CHATGPT_BROWSER_SIGNIN") {
+    callChatGPTNative('signin-browser').then(result => sendResponse({ success: true, ...result }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+  if (message.action === "CANCEL_CHATGPT_SIGNIN") {
+    callChatGPTNative('cancel-login').then(result => sendResponse({ success: true, ...result }))
       .catch(err => sendResponse({ success: false, error: err.message }));
     return true;
   }

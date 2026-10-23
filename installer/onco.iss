@@ -1,4 +1,4 @@
-#define AppVersion "1.3.3"
+#define AppVersion "1.3.4"
 #define ExtensionId "ljgoegcgbhhjhgpmdlnmnodadcdclgfm"
 [Setup]
 AppId={{6E2C201A-FF2F-45B3-898D-B6977CA8C167}
@@ -21,6 +21,8 @@ CloseApplications=yes
 
 [Files]
 Source: "..\dist\OnCoBridge.exe"; DestDir: "{app}\bridge"; Flags: ignoreversion
+Source: "..\dist\bin\codex.exe"; DestDir: "{app}\bridge\bin"; Flags: ignoreversion
+Source: "..\licenses\CODEX_APACHE_2.0.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
 Source: "..\extension\*"; DestDir: "{app}\extension"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "tutorial\*"; DestDir: "{app}\tutorial"; Flags: ignoreversion recursesubdirs createallsubdirs
 
@@ -59,7 +61,7 @@ begin
     HostFile := ExpandConstant('{app}\bridge\host.json');
     HostJson := '{' + #13#10 +
       '  "name": "org.onco.ai_solver",' + #13#10 +
-      '  "description": "OnCo ChatGPT official login bridge",' + #13#10 +
+      '  "description": "OnCo Codex app-server native messaging bridge",' + #13#10 +
       '  "path": "' + JsonQuotePath(ExpandConstant('{app}\bridge\OnCoBridge.exe')) + '",' + #13#10 +
       '  "type": "stdio",' + #13#10 +
       '  "allowed_origins": ["chrome-extension://{#ExtensionId}/"]' + #13#10 +
