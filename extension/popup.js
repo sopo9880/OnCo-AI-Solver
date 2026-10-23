@@ -307,7 +307,7 @@
       btnEnablePlan.disabled = !hasIdentity || hasSharing;
       btnSignout.disabled = !hasIdentity;
       identityStatus.textContent = hasIdentity
-        ? `계정 로그인: 성공 (${res.email || 'ChatGPT 계정'})`
+        ? "계정 로그인: 성공"
         : "계정 로그인: 미연결";
       planStatus.textContent = hasSharing
         ? "GPT 사용 권한: 동의 확인됨 (실제 모델 호출은 별도 검증)"

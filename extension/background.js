@@ -391,7 +391,7 @@ async function callChatGPTNative(action, data = null) {
 
 async function getChatGPTStatus() {
   const result = await callChatGPTNative('status');
-  return { available: true, connected: Boolean(result.connected), sharing: Boolean(result.sharing), email: result.email || '',
+  return { available: true, connected: Boolean(result.connected), sharing: Boolean(result.sharing),
     identityStatus: result.identityStatus || (result.connected ? 'signed_in' : 'signed_out'),
     planStatus: result.planStatus || (result.sharing ? 'scope_granted' : 'not_authorized'),
     lastAuthError: result.lastAuthError || null };

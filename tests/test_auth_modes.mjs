@@ -28,18 +28,20 @@ try {
     let mockTokenResponse;
     let mockIdentity = { subject: 'user-1', email: 'team-user@example.com' };
     module.exports = { beginSignin, completeSignin, status, dispatch,
+      getSession: () => session, minimizeSession,
       setResponse: x => { mockTokenResponse = x; },
       setIdentity: x => { mockIdentity = x; } };
   `, ctx, {filename: 'main.cjs', timeout: 2000});
-  const { beginSignin, completeSignin, status, dispatch, setResponse, setIdentity } = ctx.module.exports;
+  const { beginSignin, completeSignin, status, dispatch, setResponse, setIdentity, getSession, minimizeSession } = ctx.module.exports;
   const callback = 'http://127.0.0.1:54321/auth/callback';
 
   const login = new URL(beginSignin(callback));
-  assert.equal(login.searchParams.get('scope'), 'openid profile email');
+  assert.equal(login.searchParams.get('scope'), 'openid');
+  assert.ok(!/\b(profile|email)\b/.test(login.searchParams.get('scope')));
   assert.ok(!login.searchParams.get('scope').includes('chatgpt.tokens.use.direct'));
   assert.equal(login.searchParams.get('prompt'),null);
   assert.equal(login.searchParams.get('client_id'),'dynamic_agent_client');
-  setResponse({id_token:'verified-only',scope:'openid profile email',expires_in:3600});
+  setResponse({id_token:'verified-only',scope:'openid',expires_in:3600});
   const signin = new URL(callback);
   signin.searchParams.set('state',login.searchParams.get('state'));
   signin.searchParams.set('code','opaque-code');
@@ -51,13 +53,18 @@ try {
   let view = await status();
   assert.equal(view.identityStatus,'signed_in');
   assert.equal(view.planStatus,'not_authorized');
+  assert.ok(!Object.hasOwn(view,'email'),'status must not expose an email');
+  assert.ok(!Object.hasOwn(getSession(),'email'),'session must not persist an email');
+  assert.ok(!Object.hasOwn(getSession(),'idToken'),'session must not persist a raw ID token');
+  assert.equal(getSession().subject, 'user-1');
   await assert.rejects(dispatch({action:'models'}), /권한|permission/i);
   await assert.rejects(dispatch({action:'solve',data:{model:'fake',input:'hello'}}), /권한|permission/i);
 
   const upgrade = new URL(beginSignin(callback,'plan'));
   assert.equal(upgrade.searchParams.get('client_id'),'oaiapp_team_session');
   assert.equal(upgrade.searchParams.get('prompt'),'consent');
-  assert.equal(upgrade.searchParams.get('id_token_hint'),'verified-only');
+  assert.equal(upgrade.searchParams.has('id_token_hint'),false);
+  assert.ok(!/\b(profile|email)\b/.test(upgrade.searchParams.get('scope')));
   assert.ok(upgrade.searchParams.get('scope').includes('chatgpt.tokens.use.direct'));
   assert.ok(upgrade.searchParams.get('scope').includes('resource.invoke'));
   const bad = new URL(callback);
@@ -73,7 +80,7 @@ try {
   const missing = new URL(callback);
   missing.searchParams.set('state',second.searchParams.get('state'));
   missing.searchParams.set('code','new-code');
-  setResponse({id_token:'verified-only-2',scope:'openid profile email',expires_in:3600});
+  setResponse({id_token:'verified-only-2',scope:'openid',expires_in:3600});
   result = await completeSignin(missing,callback);
   assert.equal(result.connected,true);
   assert.equal(result.sharing,false);
@@ -82,7 +89,7 @@ try {
   const grant = new URL(callback);
   grant.searchParams.set('state',third.searchParams.get('state'));
   grant.searchParams.set('code','another-code');
-  setResponse({id_token:'id-for-plan',scope:'openid profile email offline_access resource.invoke chatgpt.tokens.use.direct',access_token:'test-opaque-token',refresh_token:'test-refresh',expires_in:3600});
+  setResponse({id_token:'id-for-plan',scope:'openid offline_access resource.invoke chatgpt.tokens.use.direct',access_token:'test-opaque-token',refresh_token:'test-refresh',expires_in:3600});
   result = await completeSignin(grant,callback);
   assert.equal(result.sharing,true);
   view = await status();
@@ -102,8 +109,11 @@ try {
   setIdentity({subject:'other-account',email:'other@example.com'});
   await assert.rejects(completeSignin(other,callback));
   view = await status();
-  assert.equal(view.email,'team-user@example.com');
+  assert.equal(getSession().subject,'user-1');
+  assert.equal(Object.hasOwn(view,'email'),false);
   assert.equal(view.sharing,true);
+  assert.deepEqual(Object.keys(minimizeSession({subject:'user-1',clientId:'client',accessToken:'a',refreshToken:'r',expiresAt:10,scopes:['openid','email','profile','chatgpt.tokens.use.direct'],name:'private',email:'private@example.com',picture:'url',idToken:'raw'})).sort(),
+    ['accessToken','clientId','expiresAt','refreshToken','scopes','subject'].sort());
   console.log('PASS: identity-only OAuth, explicit plan consent, denial keeps session, no implicit inference or account switch');
 } finally {
   await rm(work,{recursive:true,force:true});

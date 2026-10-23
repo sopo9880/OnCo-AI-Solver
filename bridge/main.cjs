@@ -17,8 +17,10 @@ const STORAGE_PATH = join(STORAGE_DIR, 'chatgpt-registration.json');
 const SESSION_PATH = join(STORAGE_DIR, 'chatgpt-session.dpapi');
 const LOGIN_LOCK = join(STORAGE_DIR, 'signin.lock');
 const CODE_LIFETIME_MS = 10 * 60 * 1000;
-const IDENTITY_SCOPES = 'openid profile email';
-const PLAN_SCOPES = 'openid profile email offline_access resource.invoke chatgpt.tokens.use.direct';
+const IDENTITY_SCOPES = 'openid';
+const PLAN_SCOPES = 'openid offline_access resource.invoke chatgpt.tokens.use.direct';
+// Keep only scopes needed to identify the account and access an explicitly approved plan.
+const SESSION_SCOPES = new Set(['openid', 'offline_access', 'resource.invoke', 'chatgpt.tokens.use.direct']);
 const ERROR_PATH = join(STORAGE_DIR, 'last-auth-error.json');
 let pending = null;
 let session = null;
@@ -119,7 +121,8 @@ async function verifyIdToken(raw, clientId, nonce) {
   if (typeof payload.iat === 'number' && payload.iat > Date.now() / 1000 + 120) {
     throw Error('ID 토큰 발급 시각 검증 실패');
   }
-  return { subject: payload.sub, email: typeof payload.email === 'string' ? payload.email : '' };
+  // Only the stable OIDC subject is needed. Discard optional profile claims.
+  return { subject: payload.sub };
 }
 
 async function exchangeToken(fields) {
@@ -148,8 +151,21 @@ async function dpapi(value, operation) {
   if (code !== 0 || !output.trim()) throw Error(`DPAPI credential operation failed (${code}). ${err.slice(0, 100)}`);
   return operation === 'protect' ? output.trim() : Buffer.from(output.trim(), 'base64').toString('utf8');
 }
+// Legacy encrypted v1.3.0 sessions can contain email, raw ID tokens and other
+// profile claims. Never keep or re-persist those fields, even during refresh.
+function minimizeSession(value) {
+  return {
+    subject: value.subject,
+    clientId: value.clientId,
+    accessToken: typeof value.accessToken === 'string' ? value.accessToken : '',
+    refreshToken: typeof value.refreshToken === 'string' ? value.refreshToken : '',
+    scopes: [...new Set(Array.isArray(value.scopes) ? value.scopes.filter(scope => SESSION_SCOPES.has(scope)) : [])],
+    expiresAt: Number.isFinite(value.expiresAt) ? value.expiresAt : 0
+  };
+}
 async function persistSession() {
   if (!session) return;
+  session = minimizeSession(session);
   await mkdir(STORAGE_DIR, { recursive: true, mode: 0o700 });
   const protectedValue = await dpapi(JSON.stringify(session), 'protect');
   const temp = SESSION_PATH + '.' + randomBytes(6).toString('hex');
@@ -161,7 +177,14 @@ async function loadSession() {
     const bytes = await readFile(SESSION_PATH, 'utf8');
     const data = JSON.parse(await dpapi(bytes, 'unprotect'));
     if (data && data.clientId === registration.clientId && data.subject === registration.subject &&
-        typeof data.accessToken === 'string' && Array.isArray(data.scopes)) session = data;
+        typeof data.accessToken === 'string' && Array.isArray(data.scopes)) {
+      session = minimizeSession(data);
+      // Replace the old DPAPI blob with a minimized one without logging the old data.
+      if (JSON.stringify(data) !== JSON.stringify(session)) {
+        try { await persistSession(); }
+        catch (_) { console.error('Could not finish encrypted session privacy migration.'); }
+      }
+    }
   } catch (e) {
     if (e.code !== 'ENOENT') console.error('저장된 ChatGPT 세션을 열지 못했습니다. 재로그인이 필요합니다.');
   }
@@ -185,7 +208,7 @@ function beginSignin(callback, mode = 'identity') {
   if (mode === 'plan') {
     // User explicitly requested plan access, never during ordinary sign-in.
     url.searchParams.set('prompt', 'consent');
-    if (session?.idToken) url.searchParams.set('id_token_hint', session.idToken);
+    // Do not retain or replay the original ID token: it may contain profile claims.
   }
   return url.toString();
 }
@@ -229,9 +252,9 @@ async function completeSignin(url, callback) {
   registration.clientId = issuedClientId;
   registration.subject = identity.subject;
   await persistRegistration();
-  session = { ...identity, clientId: issuedClientId, accessToken,
-    refreshToken: tokens.refresh_token || '', idToken: tokens.id_token, scopes,
-    expiresAt: Date.now() + Number(tokens.expires_in || 3600) * 1000 };
+  session = minimizeSession({ subject: identity.subject, clientId: issuedClientId, accessToken,
+    refreshToken: tokens.refresh_token || '', scopes,
+    expiresAt: Date.now() + Number(tokens.expires_in || 3600) * 1000 });
   await persistSession();
   return { connected: true, sharing: Boolean(accessToken && scopes.includes('chatgpt.tokens.use.direct')), mode: attempt.mode };
 }
@@ -251,7 +274,7 @@ async function activeSession() {
       session.accessToken = tokens.access_token;
       session.refreshToken = tokens.refresh_token || session.refreshToken;
       session.expiresAt = Date.now() + Number(tokens.expires_in || 3600) * 1000;
-      if (tokens.scope) session.scopes = String(tokens.scope).split(/\s+/).filter(Boolean);
+      if (tokens.scope) session.scopes = String(tokens.scope).split(/\s+/).filter(scope => SESSION_SCOPES.has(scope));
       await persistSession();
     })().finally(() => { refreshPromise = null; });
   }
@@ -382,7 +405,6 @@ async function status() {
   const sharing = connected && Boolean(session?.accessToken && session?.scopes?.includes('chatgpt.tokens.use.direct'));
   return { connected, sharing, identityStatus: connected ? 'signed_in' : 'signed_out',
     planStatus: sharing ? 'scope_granted' : 'not_authorized',
-    email: connected ? session?.email || '' : '',
     lastAuthError: await lastAuthError() };
 }
 function selfArgs(mode) {

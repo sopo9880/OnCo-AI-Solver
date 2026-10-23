@@ -10,6 +10,13 @@ OnCo 사이트의 **실제 코딩 문제** 페이지에서만 문제·이미지�
 4. ChatGPT 사용 시 먼저 `Continue with ChatGPT`로 **기본 신원 로그인**을 합니다. 필요한 경우 별도 `GPT 플랜 사용 권한 요청` 버튼으로 구독 사용에 동의합니다. v1.3.0에서 이미 승인받은 세션은 유지되며, 사용 가능 여부는 실제 토큰에 부여된 scope와 모델 호출 결과로 판단합니다. Team/Business 사용 가능 여부는 조직 정책과 계정 자격에 따라 달라집니다. Gemini 및 OpenAI API 키 연결을 유지하고 유료 API로 자동 전환하지 않습니다.
 5. 사용자는 이후 브라우저에서 OnCo 문제 페이지를 열면 됩니다. 설치 프로그램이나 CMD를 매번 실행할 필요가 없습니다.
 
+## Login privacy (v1.3.1)
+
+- The authorization request asks for **`openid` only** during basic identity sign-in, and adds **`offline_access resource.invoke chatgpt.tokens.use.direct`** only after explicit plan consent. No `profile` or `email` scopes are requested.
+- The app keeps the verified opaque OIDC `sub` and the issued client/host registration identifiers to distinguish connected accounts. It does **not** need your name, email address or profile photo for solving problems.
+- On successful upgrade, old v1.3.0 encrypted session records are minimized automatically: personal profile fields and raw ID tokens are discarded, while legitimate existing plan tokens and account binding are retained.
+- This update does **not** revoke profile permissions previously granted at OpenAI. To remove old server-side grants, review and revoke the app under official ChatGPT connected-app settings before authorizing again. Real Team/workspace acceptance of reduced scopes must be confirmed after release; no automatic fallback silently asks for more profile data.
+
 ## 구성
 
 - `extension`: MV3 브라우저 확장; Gemini API와 OpenAI API 키 모드 유지, 문제 화면 오탐 방지
