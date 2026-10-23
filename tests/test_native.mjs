@@ -27,7 +27,7 @@ async function native(message) {
 try {
   const ping = await native({ action:'ping' });
   assert.equal(ping.ready,true);
-  assert.equal(ping.version,'1.3.2');
+  assert.equal(ping.version,'1.3.3');
   const status = await native({action:'status'});
   assert.equal(status.connected,false);
   assert.equal(status.sharing,false);

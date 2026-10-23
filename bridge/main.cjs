@@ -201,24 +201,77 @@ async function exchangeToken(fields) {
 }
 
 
-// Windows DPAPI: secrets are passed via stdin (never process arguments or stdout logs).
+// Windows CurrentUser DPAPI: send secrets over stdin, never via process args or logs.
+// Windows PowerShell 5.1 does not consistently auto-load System.Security.
+function dpapiPowerShellScript(operation) {
+  if (operation !== 'protect' && operation !== 'unprotect') throw Error('Invalid DPAPI operation');
+  const method = operation === 'protect' ? 'Protect' : 'Unprotect';
+  return [
+    "$ErrorActionPreference = 'Stop'",
+    "try {",
+    "  Add-Type -AssemblyName System.Security -ErrorAction Stop",
+    "  [Console]::InputEncoding = [Text.Encoding]::UTF8",
+    "  [Console]::OutputEncoding = [Text.Encoding]::UTF8",
+    "  $raw = [Console]::In.ReadToEnd().Trim()",
+    "  $bytes = [Convert]::FromBase64String($raw)",
+    `  $result = [System.Security.Cryptography.ProtectedData]::${method}($bytes, $null, [System.Security.Cryptography.DataProtectionScope]::CurrentUser)`,
+    "  [Console]::Out.Write([Convert]::ToBase64String($result))",
+    "} catch {",
+    "  # Emit exception TYPE only, never the (potentially sensitive) exception message.",
+    "  $typeName = $_.Exception.GetType().FullName",
+    "  [Console]::Error.WriteLine('ONCO_DPAPI_ERROR:' + $typeName)",
+    "  exit 1",
+    "}"
+  ].join('\n');
+}
+
+function explainDpapiFailure(exitCode, stderr) {
+  const name = /ONCO_DPAPI_ERROR:([A-Za-z][A-Za-z0-9_.]+)/.exec(stderr)?.[1] || '';
+  let detail;
+  if (name.endsWith('CryptographicException')) {
+    detail = 'Windows 사용자 계정의 암호화 키가 세션을 처리하지 못했습니다. 사용자 프로필과 계정 상태를 확인해주세요.';
+  } else if (name.endsWith('FormatException')) {
+    detail = '저장된 암호화 데이터 형식이 올바르지 않습니다. 기존 파일은 삭제하지 않았습니다.';
+  } else if (name.endsWith('TypeLoadException') || name.endsWith('FileNotFoundException')) {
+    detail = 'PowerShell에서 System.Security 암호화 구성 요소를 불러오지 못했습니다.';
+  } else {
+    detail = name
+      ? `PowerShell 암호화 작업 예외: ${name}`
+      : 'PowerShell 암호화 작업이 중단됐습니다. Windows 사용자 프로필과 PowerShell 실행 정책을 확인해주세요.';
+  }
+  const codeText = Number.isInteger(exitCode) ? String(exitCode) : '중단';
+  return new Error(`Windows DPAPI 로그인 정보 보호 실패 (종료 코드 ${codeText}). ${detail} 기존 인증 파일은 자동 삭제하지 않습니다.`);
+}
 async function dpapi(value, operation) {
   if (process.platform !== 'win32') throw Error('Windows DPAPI가 필요한 기능입니다.');
-  const action = operation === 'protect' ? 'Protect' : 'Unprotect';
-  const script = `[Console]::InputEncoding=[Text.Encoding]::UTF8; [Console]::OutputEncoding=[Text.Encoding]::UTF8; ` +
-    `$raw=[Console]::In.ReadToEnd().Trim(); $bytes=[Convert]::FromBase64String($raw); ` +
-    `$res=[Security.Cryptography.ProtectedData]::${action}($bytes,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser); ` +
-    `[Console]::Out.Write([Convert]::ToBase64String($res));`;
+  const script = dpapiPowerShellScript(operation);
   const command = Buffer.from(script, 'utf16le').toString('base64');
-  const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', command], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+  let child;
+  try {
+    child = spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', command],
+      { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'], timeout: 30000 });
+  } catch (_) {
+    throw Error('Windows PowerShell을 실행하지 못했습니다. Windows PowerShell 5.1 설치 상태를 확인해주세요.');
+  }
   let output = '', err = '';
   child.stdout.setEncoding('utf8').on('data', chunk => { if (output.length < 400000) output += chunk; });
   child.stderr.setEncoding('utf8').on('data', chunk => { if (err.length < 4000) err += chunk; });
-  child.stdin.end(operation === 'protect' ? Buffer.from(value, 'utf8').toString('base64') : value);
-  const code = await new Promise((resolve, reject) => { child.on('error', reject); child.on('close', resolve); });
-  if (code !== 0 || !output.trim()) throw Error(`DPAPI credential operation failed (${code}). ${err.slice(0, 100)}`);
-  return operation === 'protect' ? output.trim() : Buffer.from(output.trim(), 'base64').toString('utf8');
+  const input = operation === 'protect' ? Buffer.from(value, 'utf8').toString('base64') : value;
+  child.stdin.end(input);
+  const code = await new Promise((resolve, reject) => {
+    child.on('error', reject);
+    child.on('close', resolve);
+  }).catch(() => {
+    throw Error('Windows PowerShell을 실행하지 못했습니다. Windows PowerShell 5.1 설치 상태를 확인해주세요.');
+  });
+  if (code !== 0 || !output.trim()) throw explainDpapiFailure(code, err);
+  const encoded = output.trim();
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) {
+    throw Error('Windows DPAPI가 올바른 암호화 결과를 반환하지 않았습니다. 기존 인증 파일은 유지됩니다.');
+  }
+  return operation === 'protect' ? encoded : Buffer.from(encoded, 'base64').toString('utf8');
 }
+
 // Legacy encrypted v1.3.0 sessions can contain email, raw ID tokens and other
 // profile claims. Never keep or re-persist those fields, even during refresh.
 function minimizeSession(value) {
@@ -562,7 +615,7 @@ function writeNativeMessage(value) {
 async function dispatch(msg) {
   const action = msg?.action;
   switch (action) {
-    case 'ping': return { ready: true, version: '1.3.2' };
+    case 'ping': return { ready: true, version: '1.3.3' };
     case 'status': return status();
     case 'signin':
       if ((await status()).connected) return { started: false, alreadyConnected: true };
@@ -576,7 +629,16 @@ async function dispatch(msg) {
 }
 async function main() {
   const guideUri = guideUriFromArgs(process.argv, process.execPath);
+  const dpapiSelfTest = process.argv.includes('--dpapi-self-test');
   try {
+    if (dpapiSelfTest) {
+      // Invoked by Windows CI against the packaged EXE. Never reads user login data.
+      const challenge = randomBytes(32).toString('base64url');
+      const recovered = await dpapi(await dpapi(challenge, 'protect'), 'unprotect');
+      if (!safeEquals(challenge, recovered)) throw Error('Windows DPAPI self-test round-trip mismatch');
+      process.stdout.write('ONCO_DPAPI_SELFTEST_OK\n');
+      return;
+    }
     // This path is invoked by Windows URL Protocol, not by Chrome Native Messaging.
     if (guideUri) {
       await openExtensionManager(guideUri);
@@ -592,6 +654,12 @@ async function main() {
     const result = await dispatch(incoming);
     writeNativeMessage({ success: true, ...result });
   } catch (err) {
+    if (dpapiSelfTest) {
+      // No native-messaging frame or confidential information in diagnostic mode.
+      console.error('DPAPI self-test:', serializeError(err));
+      process.exitCode = 1;
+      return;
+    }
     if (guideUri) {
       console.error('확장 관리 화면 열기 실패:', serializeError(err));
       process.exitCode = 1;

@@ -63,7 +63,7 @@ assert.match(nativeSource, /shell: false/);
 assert.match(nativeSource, /if \(guideUri\) \{\s*await openExtensionManager\(guideUri\)/);
 
 const installer = await readFile(join(root, 'installer/onco.iss'), 'utf8');
-assert.match(installer, /#define AppVersion "1\.3\.2"/);
+assert.match(installer, /#define AppVersion "1\.3\.3"/);
 assert.match(installer, /Root: HKCU; Subkey: "Software\\Classes\\onco-ai-solver"; ValueType: string; ValueName: "URL Protocol"/);
 assert.match(installer, /Root: HKCU; Subkey: "Software\\Classes\\onco-ai-solver"; ValueType: string; ValueName: "";.*Flags: uninsdeletekey/);
 assert.match(installer, /ValueData: """\{app\}\\bridge\\OnCoBridge\.exe"" ""%1"""/);
@@ -75,5 +75,5 @@ assert.match(installGuide, /href="onco-ai-solver:\/\/whale-extensions\/"/);
 assert.match(installGuide, /새 탭에서 열기/);
 assert.match(installGuide, /주소 복사/);
 assert.ok(!installGuide.includes('window.open("chrome://'));
-assert.equal(JSON.parse(await readFile(join(root,'extension/manifest.json'),'utf8')).version, '1.3.2');
+assert.equal(JSON.parse(await readFile(join(root,'extension/manifest.json'),'utf8')).version, '1.3.3');
 console.log('PASS: strict setup guide URI allowlist, per-user protocol registration, Chrome/Whale tabs, copy fallback');

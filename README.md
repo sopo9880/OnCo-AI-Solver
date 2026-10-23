@@ -2,20 +2,28 @@
 
 OnCo 사이트의 **실제 코딩 문제** 페이지에서만 문제·이미지·테스트 예제 복사 및 AI 모델 선택을 지원하는 비공식 Chrome / Whale 확장 프로그램입니다.
 
-## Windows 설치 및 업데이트 (v1.3.2)
+## Windows 설치 및 업데이트 (v1.3.3)
 
-1. GitHub Releases에서 `OnCo_Setup_v1.3.2.exe`를 받아 설치합니다. 이전 버전이 있다면 삭제하지 않고 같은 폴더에 덮어 설치할 수 있습니다.
+1. GitHub Releases에서 `OnCo_Setup_v1.3.3.exe`를 받아 설치합니다. 이전 버전이 있다면 삭제하지 않고 같은 폴더에 덮어 설치할 수 있습니다.
 2. 설치 끝에 열리는 **확장 연결 튜토리얼**에서 Chrome 또는 Whale의 **`새 탭에서 열기`**를 클릭합니다. 처음에는 브라우저가 OnCo AI Solver 외부 앱 실행 승인을 물을 수 있습니다. Windows에 등록된 `onco-ai-solver://` 링크가 해당 브라우저를 직접 열어 `chrome://extensions` 또는 `whale://extensions`를 표시합니다. 열리지 않는 환경에서는 **`주소 복사`**로 해당 주소를 브라우저 주소창에 입력하면 됩니다. 최초 설치 시 개발자 모드를 켜고 **설치 폴더의 `extension` 하위 폴더**를 `압축해제된 확장 프로그램 로드`로 선택합니다. 웹스토어 등록은 필요하지 않습니다.
 3. 확장 프로그램의 `AI 서비스`에서 **ChatGPT 계정** 또는 **Gemini/OpenAI API 키**를 선택합니다.
 4. ChatGPT 사용 시 먼저 `Continue with ChatGPT`로 **기본 신원 로그인**을 합니다. 필요한 경우 별도 `GPT 플랜 사용 권한 요청` 버튼으로 구독 사용에 동의합니다. v1.3.0에서 이미 승인받은 세션은 유지되며, 사용 가능 여부는 실제 토큰에 부여된 scope와 모델 호출 결과로 판단합니다. Team/Business 사용 가능 여부는 조직 정책과 계정 자격에 따라 달라집니다. Gemini 및 OpenAI API 키 연결을 유지하고 유료 API로 자동 전환하지 않습니다.
 5. 사용자는 이후 브라우저에서 OnCo 문제 페이지를 열면 됩니다. 업데이트 시 새 Setup을 실행한 뒤 확장 관리 페이지에서 기존 확장을 **새로고침(↻)** 하세요. 최초 설치 외에는 확장 프로그램을 새로 등록하지 않습니다.
 
-## Extension manager links (v1.3.2)
+## Extension manager links (v1.3.3)
 
 - Setup registers a **per-user** `onco-ai-solver://` Windows URL protocol handler pointing at the existing `OnCoBridge.exe` (removed on uninstall). It requires no administrator privileges and does not run in the background.
 - The launcher **only accepts** `onco-ai-solver://chrome-extensions/` and `onco-ai-solver://whale-extensions/`. It starts the specifically selected browser with `--new-tab` and its own extension settings address. Arbitrary URLs, executable names or shell commands are rejected. The browser executable is located in typical Windows installation directories or its Windows App Paths registry entry.
 - If the browser blocks the external-app prompt, is not installed or uses an unsupported custom installation, the **copy-address** buttons remain available. This is a best-effort Windows convenience feature and does not bypass browser approval.
 - This release's new-tab buttons are distinct from the existing ChatGPT authentication flow; the previously reported Windows DPAPI login failure is **not fixed** by the new-tab feature alone.
+
+## Windows DPAPI login fix (v1.3.3)
+
+- Windows PowerShell 5.1 explicitly loads `System.Security` before using .NET `ProtectedData` with `CurrentUser` scope. Tokens are sent only through stdin, encrypted with Windows DPAPI, and never passed in command-line arguments.
+- PowerShell errors return a safe exception type instead of raw `CLIXML`, which could otherwise obscure the cause or expose sensitive text.
+- Failure to encrypt does **not** automatically delete or overwrite an existing encrypted ChatGPT session; the app does **not** fall back to unencrypted storage.
+- Windows CI exercises a real **protect → unprotect** round-trip using the final packaged `OnCoBridge.exe` under a temporary clean account-data directory. A separate mock test ensures malformed errors cannot leak secrets and failed writes preserve existing session files.
+- OAuth policy, Team workspace approval, and actual model usage are independent of DPAPI; these still need real-device validation after the release. Prior releases and their binaries are never replaced.
 
 ## Login privacy (v1.3.1)
 
