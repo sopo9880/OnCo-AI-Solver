@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OnCo AI Solver</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 352px;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #0f1117;
+      color: #e0e0e0;
+      padding: 20px;
+    }
+
+    h1 {
+      font-size: 16px;
+      font-weight: 700;
+      color: #7eb8f7;
+      margin-bottom: 16px;
+      letter-spacing: 0.5px;
+    }
+
+    label {
+      display: block;
+      font-size: 12px;
+      color: #9aa0b0;
+      margin-bottom: 6px;
+    }
+
+    input[type="password"], input[type="text"] {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #2a2d3a;
+      border-radius: 6px;
+      background: #1a1d27;
+      color: #e0e0e0;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    input:focus {
+      border-color: #4a90d9;
+    }
+
+    select {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #2a2d3a;
+      border-radius: 6px;
+      background: #1a1d27;
+      color: #e0e0e0;
+      font-size: 13px;
+      outline: none;
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%239aa0b0' d='M6 8L0 0h12z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+      padding-right: 28px;
+      transition: border-color 0.2s;
+    }
+
+    select:focus {
+      border-color: #4a90d9;
+    }
+
+    select option {
+      background: #1a1d27;
+    }
+
+    .model-tools {
+      display: flex;
+      margin-top: 6px;
+    }
+
+    #btn-model-refresh {
+      flex: 1;
+      padding: 6px 8px;
+      background: #1e2a3a;
+      color: #7eb8f7;
+      font-size: 11px;
+      border: 1px solid #2a3a50;
+    }
+    #btn-model-refresh:hover { background: #263444; }
+    #btn-model-refresh:disabled { color: #566274; background: #171d27; cursor: not-allowed; }
+
+    #model-info {
+      margin-top: 6px;
+      min-height: 14px;
+      font-size: 10px;
+      line-height: 1.35;
+      color: #6f7788;
+      word-break: keep-all;
+    }
+
+    .model-badge {
+      display: inline-block;
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 4px;
+      margin-left: 4px;
+      vertical-align: middle;
+    }
+
+    .row {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    button {
+      flex: 1;
+      padding: 8px 0;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+    }
+
+    button:active { transform: scale(0.97); }
+
+    #btn-save {
+      background: #2a3a5a;
+      color: #7eb8f7;
+    }
+
+    #btn-save:hover { background: #334466; }
+
+    #btn-solve {
+      background: #4a90d9;
+      color: #fff;
+    }
+
+    #btn-solve:hover { background: #5aa0e9; }
+    #btn-solve:disabled { background: #2a4060; color: #557799; cursor: not-allowed; }
+
+    #btn-force-paste {
+      background: #21453a;
+      color: #76d7b0;
+    }
+
+    #btn-force-paste:hover { background: #285444; }
+    #btn-force-paste:disabled { background: #1a302a; color: #4c806c; cursor: not-allowed; }
+
+    #btn-solve .spinner,
+    #btn-force-paste .spinner {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    #status {
+      margin-top: 12px;
+      font-size: 12px;
+      min-height: 18px;
+      text-align: center;
+      color: #9aa0b0;
+    }
+
+    #status.error { color: #f07080; }
+    #status.success { color: #60c090; }
+    #status.loading { color: #7eb8f7; }
+
+    .divider {
+      border: none;
+      border-top: 1px solid #1e2130;
+      margin: 14px 0;
+    }
+
+    [hidden] { display: none !important; }
+    .hint { font-size: 11px; line-height: 1.55; color: #929bad; margin-top: 8px; }
+    .hint a { color: #81bfff; }
+    .section { margin-top: 10px; }
+    .section > label { margin-bottom: 6px; }
+    #provider-select { margin-bottom: 10px; }
+    #chatgpt-status { font-size: 12px; color: #a8cfff; line-height: 1.5; }
+    #btn-signin { background: #e1e4f0; color: #15171d; }
+    #btn-signin:hover { background: #fff; }
+    #btn-pair { background: #29405e; color: #9bc9ff; }
+    #btn-signout { background: #49302e; color: #ffc3bd; }
+    #btn-remove-key { background: #372b36; color: #eaa1cb; }
+    #btn-usage { background: #23352d; color: #a0e3bb; }
+    #btn-open-helper-guide { background: #203049; color: #a9bfe1; }
+
+    /* 에러 모달 */
+    #error-modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.7);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+    }
+    #error-modal-overlay.show { display: flex; }
+    #error-modal {
+      background: #1a1d27;
+      border: 1px solid #f07080;
+      border-radius: 8px;
+      padding: 16px;
+      width: 288px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    #error-modal h2 {
+      font-size: 13px;
+      font-weight: 700;
+      color: #f07080;
+      margin: 0;
+    }
+    #error-modal pre {
+      margin: 0;
+      font-size: 11px;
+      color: #e0e0e0;
+      background: #0f1117;
+      border: 1px solid #2a2d3a;
+      border-radius: 5px;
+      padding: 8px;
+      white-space: pre-wrap;
+      word-break: break-all;
+      user-select: text;
+      max-height: 120px;
+      overflow-y: auto;
+    }
+    .modal-row {
+      display: flex;
+      gap: 8px;
+    }
+    #btn-modal-copy {
+      background: #2a3a5a;
+      color: #7eb8f7;
+    }
+    #btn-modal-copy:hover { background: #334466; }
+    #btn-modal-copy.copied { background: #1a3a2a; color: #60c090; }
+    #btn-modal-close {
+      background: #3a1a1a;
+      color: #f07080;
+    }
+    #btn-modal-close:hover { background: #4a2020; }
+
+    /* 로그 섹션 */
+    #log-section { margin-top: 4px; }
+    #log-section summary {
+      font-size: 12px;
+      color: #9aa0b0;
+      cursor: pointer;
+      user-select: none;
+      padding: 4px 0;
+    }
+    #log-section summary:hover { color: #c0c8d8; }
+    #log-box {
+      margin-top: 6px;
+      background: #0a0c12;
+      border: 1px solid #1e2130;
+      border-radius: 6px;
+      height: 130px;
+      overflow-y: auto;
+      font-size: 11px;
+      font-family: 'Consolas', monospace;
+      padding: 6px;
+    }
+    .log-entry { margin-bottom: 3px; line-height: 1.4; }
+    .log-entry .ts { color: #454d60; }
+    .log-entry.INFO .lv  { color: #4a90d9; }
+    .log-entry.SUCCESS .lv { color: #40a060; }
+    .log-entry.ERROR .lv   { color: #f07080; }
+    .log-entry .lv { font-weight: 700; }
+    .log-row {
+      display: flex;
+      gap: 6px;
+      margin-top: 6px;
+    }
+    .log-row button {
+      flex: 1;
+      padding: 5px 0;
+      border: none;
+      border-radius: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #btn-log-download { background: #1e2a3a; color: #7eb8f7; }
+    #btn-log-download:hover { background: #263444; }
+    #btn-log-clear { background: #2a1a1a; color: #f07080; }
+    #btn-log-clear:hover { background: #3a2020; }
+  </style>
+</head>
+<body>
+  <h1>⚡ OnCo AI Solver</h1>
+
+  <label for="provider-select">AI 서비스</label>
+  <select id="provider-select">
+    <option value="gemini">Google Gemini / Gemma (API 키)</option>
+    <option value="openai">OpenAI GPT (API 키)</option>
+    <option value="chatgpt">ChatGPT 계정 로그인 (로컬 도우미)</option>
+  </select>
+
+  <section id="api-key-section">
+    <label for="api-key" id="api-key-label">Gemini API Key</label>
+    <input type="password" id="api-key" placeholder="Gemini API key" autocomplete="off" />
+    <div class="row">
+      <button id="btn-save">API 키 저장</button>
+      <button id="btn-remove-key">키 삭제</button>
+    </div>
+    <p class="hint" id="api-key-hint">API 키는 확장 프로그램의 로컬 저장소에만 저장됩니다.</p>
+  </section>
+
+  <section id="chatgpt-section" hidden>
+    <div id="chatgpt-status">로컬 로그인 도우미 연결 확인 중...</div>
+    <p class="hint">공식 Sign in with ChatGPT를 사용합니다. 별도 로컬 도우미(Node.js)가 실행 중이어야 합니다.</p>
+    <div class="row">
+      <button id="btn-open-helper-guide">도우미 설정 안내</button>
+      <button id="btn-usage">사용량 확인</button>
+    </div>
+    <div id="chatgpt-pair-section" class="section">
+      <label for="pair-code">도우미 터미널에 표시된 연결 코드</label>
+      <input type="text" id="pair-code" placeholder="12자리 연결 코드" autocomplete="off" />
+      <div class="row"><button id="btn-pair">도우미 연결</button></div>
+    </div>
+    <div class="row">
+      <button id="btn-signin" disabled>Continue with ChatGPT</button>
+      <button id="btn-signout" disabled>로그아웃</button>
+    </div>
+    <p class="hint">계정 로그인과 ChatGPT 플랜 사용 권한은 별도 동의입니다. 도우미 종료 시 로그인 토큰은 메모리에서 사라집니다.</p>
+  </section>
+
+  <hr class="divider" />
+  <label for="model-select">AI 모델</label>
+  <select id="model-select">
+    <option value="__auto_gemini_flash__">자동 최신 Flash (권장)</option>
+  </select>
+  <div class="model-tools"><button id="btn-model-refresh">↻ 모델 목록 새로고침</button></div>
+  <div id="model-info">선택한 서비스의 모델 목록을 조회합니다.</div>
+
+  <div class="row">
+    <button id="btn-solve">문제 풀기</button>
+    <button id="btn-force-paste">강제 붙여넣기</button>
+  </div>
+
+  <hr class="divider" />
+  <div id="status">서비스 및 모델을 선택해주세요.</div>
+
+  <details id="log-section">
+    <summary>문제 풀이 로그 ▼</summary>
+    <div id="log-box"><span style="color:#454d60">로그가 없습니다.</span></div>
+    <div class="log-row">
+      <button id="btn-log-download">↓ 파일 다운로드</button>
+      <button id="btn-log-clear">전체 삭제</button>
+    </div>
+  </details>
+
+  <!-- 에러 모달 -->
+  <div id="error-modal-overlay">
+    <div id="error-modal">
+      <h2>⚠️ OnCo AI Solver 오류</h2>
+      <pre id="error-modal-text"></pre>
+      <div class="modal-row">
+        <button id="btn-modal-copy">클립보드 복사</button>
+        <button id="btn-modal-close">닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

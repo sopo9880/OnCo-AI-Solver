@@ -1,0 +1,62 @@
+{
+  "manifest_version": 3,
+  "name": "OnCo AI Solver",
+  "version": "1.2.0",
+  "description": "OnCo 풀이용 Gemini / OpenAI GPT API / ChatGPT 로그인 모델 자동 선택 지원",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "clipboardRead",
+    "clipboardWrite"
+  ],
+  "host_permissions": [
+    "*://*.on-co.net/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://api.openai.com/*",
+    "http://127.0.0.1:18744/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.on-co.net/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "commands": {
+    "solve-problem": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Q",
+        "mac": "Command+Shift+Q"
+      },
+      "description": "OnCo 문제 AI 자동 풀이 및 코드 주입"
+    },
+    "force-paste": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+V",
+        "mac": "Command+Shift+V"
+      },
+      "description": "클립보드 코드 강제 주입 (권한 필요)"
+    }
+  }
+}

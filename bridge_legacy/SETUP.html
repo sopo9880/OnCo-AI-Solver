@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OnCo AI Solver — ChatGPT 로그인 설정</title>
+<style>
+body{margin:0;background:#10131b;color:#e7ebf5;font:15px/1.75 system-ui,'Malgun Gothic',sans-serif}
+main{max-width:740px;margin:40px auto;padding:0 24px}
+h1{font-size:27px;color:#88bcff}h2{font-size:19px;color:#b9d7ff;margin-top:30px}
+a{color:#80baff}code{background:#232b3b;border-radius:4px;padding:2px 6px}p{margin:10px 0}
+article{border:1px solid #30394b;border-radius:12px;padding:16px 22px;background:#181e2a}
+li{margin:8px 0}.small{color:#a1aec2;font-size:13px}
+</style>
+</head>
+<body><main>
+<h1>OnCo AI Solver · ChatGPT 계정 로그인</h1>
+<article>
+<p>공식 OpenAI <strong>Sign in with ChatGPT</strong> 인증을 사용하는 개인용 로컬 연결 기능입니다. Chrome 확장 프로그램은 PC에서 인증 콜백을 수신할 수 없으므로, PC에서 실행되는 작은 도우미가 필요합니다.</p>
+<h2>처음 설치하기 (Windows)</h2>
+<ol>
+<li><a href="https://nodejs.org/en/download" target="_blank" rel="noopener noreferrer">Node.js 공식 홈페이지</a>에서 Node.js <strong>22 이상</strong>을 설치합니다.</li>
+<li>ZIP을 압축 해제한 폴더의 <code>chatgpt_bridge</code> 하위 폴더에서 <code>start_windows.cmd</code>를 실행합니다. PC와 모바일에서 파일을 실행하는 환경이 다를 수 있습니다.</li>
+<li>열린 검은 콘솔 창의 <strong>12자리 연결 코드</strong>를 확장 프로그램 → <strong>ChatGPT 계정 로그인</strong> → 연결 코드 칸에 입력합니다.</li>
+<li><strong>Continue with ChatGPT</strong> 버튼을 누르면 공식 OpenAI 로그인 페이지가 열립니다. 로그인·워크스페이스 선택·사용량 공유 권한 승인까지 진행합니다.</li>
+<li>다시 확장 프로그램 팝업을 열면, 로그인된 계정의 GPT 모델이 자동 표시됩니다.</li>
+</ol>
+<h2>평소 사용하기</h2>
+<p>ChatGPT 방식 사용 중에는 <code>start_windows.cmd</code> 콘솔 창을 열어 두세요. 도우미를 재시작하면 연결 코드 입력과 ChatGPT 계정 재로그인이 필요합니다. Gemini/OpenAI API 키 방식에는 도우미가 필요 없습니다.</p>
+<h2>보안 · 비용</h2>
+<p>연결 코드는 PC 안의 <code>127.0.0.1:18744</code>에서 확장 프로그램과 도우미를 연결하는 용도이며, ChatGPT 비밀번호를 입력받지 않습니다. OAuth 접근/갱신 토큰은 도우미 메모리에만 남고 종료하면 사라집니다. 호스트 ID와 발급된 OAuth 클라이언트 ID는 사용자 홈 폴더의 <code>.onco-ai-solver/chatgpt-registration.json</code>에 보관합니다.</p>
+<p>ChatGPT 계정에서 <strong>플랜 사용 권한</strong>을 명시적으로 허용해야 모델 호출이 가능하며, 계정의 요금제·사용 한도·허용된 모델에 따라 이용이 제한될 수 있습니다. 사용량은 <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener noreferrer">ChatGPT 사용량 설정</a>에서 확인할 수 있습니다.</p>
+<p>OpenAI API 키 방식은 위 로그인 방식과 무관하며, <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI API 키 발급 페이지</a>에서 생성한 키를 사용합니다. API 사용 요금은 ChatGPT 구독과 별개입니다.</p>
+</article>
+<p class="small">참고: 공식 로그인 문서 <a href="https://developers.openai.com/siwc/token-sharing-open-source/sign-in" target="_blank" rel="noopener noreferrer">Sign in with ChatGPT — OSS registration and sign-in</a>. 개인/로컬 사용 목적으로 제공되며, 실제 계정 로그인은 사용자가 직접 수행해야 합니다.</p>
+</main></body></html>
