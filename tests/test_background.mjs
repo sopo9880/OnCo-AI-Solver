@@ -31,15 +31,28 @@ const chrome = {
     setAccessLevel: async () => {}
   } },
   runtime: { onMessage: { addListener: callback => { listener = callback; } },
-    sendNativeMessage: (host, msg, cb) => {
-      nativeCalls.push({host,msg});
-      const replies = {
-        status: {success:true,connected:true,sharing:true,identityStatus:'signed_in',planStatus:'scope_granted',email:'tester@example.com'},
-        signin: {success:true,started:true,mode:'identity'},'enable-plan': {success:true,started:true,mode:'plan'},logout: {success:true},
-        models: {success:true,models:[{id:'gpt-6.1-sol',displayName:'GPT 6.1 Sol'},{id:'gpt-6-astra',displayName:'GPT 6 Astra'}]},
-        solve: {success:true,text:'print(3)'}
+    connectNative: host => {
+      const port = {
+        onMessage: { addListener(fn){ port.onNativeMessage=fn; } },
+        onDisconnect: { addListener(fn){ port.onNativeDisconnect=fn; } },
+        postMessage: msg => {
+          nativeCalls.push({host,msg});
+          const replies = {
+            status: {available:true,connected:true,sharing:true,identityStatus:'signed_in',
+              planStatus:'codex_connected',planType:'team',email:'tester@example.com'},
+            signin: {started:true,login:{mode:'device',userCode:'ABCD-1234',verificationUrl:'https://auth.openai.com/codex/device'}},
+            'signin-browser': {started:true,login:{mode:'browser',authUrl:'https://chatgpt.com/auth/login'}},
+            'cancel-login': {cancelled:true},logout: {connected:false},
+            models: {models:[{id:'gpt-6.1-sol',displayName:'GPT 6.1 Sol',isDefault:true},
+              {id:'gpt-6-astra',displayName:'GPT 6 Astra'}]},
+            solve: {text:'print(3)'}
+          };
+          queueMicrotask(()=>port.onNativeMessage({
+            id:msg.id,success:!!replies[msg.action],...(replies[msg.action]||{error:'unsupported'})
+          }));
+        }
       };
-      cb(replies[msg.action] || {success:false,error:'unsupported'});
+      return port;
     } },
   tabs: { sendMessage: async () => ({ success: true, data: { title: 'Test', description: 'input int', language: 'Python 3', testCases: '1=>1' } }),
     create: async () => ({}) },
@@ -109,13 +122,20 @@ assert.equal(bridgeSolve.host,'org.onco.ai_solver');
 const authStatus = await send({action:'GET_CHATGPT_STATUS'});
 assert.equal(authStatus.connected,true);
 assert.equal(Object.hasOwn(authStatus,'email'),false,'extension must not receive the optional profile email');
-assert.equal((await send({action:'START_CHATGPT_SIGNIN'})).success,true);
+const login=await send({action:'START_CHATGPT_SIGNIN'});
+assert.equal(login.success,true);
+assert.equal(login.login.userCode,'ABCD-1234');
 assert.equal(nativeCalls.at(-1).msg.action,'signin');
-assert.equal((await send({action:'START_CHATGPT_PLAN_AUTH'})).success,true);
-assert.equal(nativeCalls.at(-1).msg.action,'enable-plan');
+assert.equal((await send({action:'START_CHATGPT_BROWSER_SIGNIN'})).success,true);
+assert.equal(nativeCalls.at(-1).msg.action,'signin-browser');
+assert.equal((await send({action:'CANCEL_CHATGPT_SIGNIN'})).success,true);
+assert.equal(nativeCalls.at(-1).msg.action,'cancel-login');
+assert.ok(!bg.includes('chrome.runtime.sendNativeMessage'));
 // Content scripts cannot query credential-related messages.
 const rejected = await send({action:'GET_CHATGPT_STATUS'}, {tab:{id:11}});
 assert.equal(rejected.success, false);
-const deniedPlan = await send({action:'START_CHATGPT_PLAN_AUTH'},{tab:{id:11}});
-assert.equal(deniedPlan.success,false);
+const deniedBrowser = await send({action:'START_CHATGPT_BROWSER_SIGNIN'},{tab:{id:11}});
+assert.equal(deniedBrowser.success,false);
+const deniedCancel = await send({action:'CANCEL_CHATGPT_SIGNIN'},{tab:{id:11}});
+assert.equal(deniedCancel.success,false);
 console.log('PASS: popup DOM, OpenAI/Gemini/ChatGPT routing, dynamic model selection, injection, secret compartmentalization');

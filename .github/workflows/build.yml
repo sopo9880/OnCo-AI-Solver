@@ -33,7 +33,28 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           node tests/native-smoke.cjs dist/OnCoBridge.exe
           if ($LASTEXITCODE -ne 0) { exit 1 }
-          node tests/windows-dpapi-smoke.cjs dist/OnCoBridge.exe
+      - name: Stage pinned official Codex 0.163.0 Windows x64 binary
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $packageRoot = Join-Path $env:RUNNER_TEMP 'onco-codex-0.163.0'
+          New-Item -ItemType Directory -Force -Path $packageRoot | Out-Null
+          $packFile = (& npm pack '@openai/codex@0.163.0-win32-x64' --pack-destination $packageRoot --silent | Select-Object -Last 1).Trim()
+          if ($LASTEXITCODE -ne 0 -or !$packFile) { throw 'Failed to download official pinned Windows Codex runtime' }
+          tar -xzf (Join-Path $packageRoot $packFile) -C $packageRoot
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to unpack Codex runtime' }
+          $binary = Join-Path $packageRoot 'package/vendor/x86_64-pc-windows-msvc/bin/codex.exe'
+          if (!(Test-Path $binary)) { throw 'Official Codex Windows binary was missing from npm package' }
+          New-Item -ItemType Directory -Force dist/bin | Out-Null
+          Copy-Item $binary dist/bin/codex.exe
+          Copy-Item licenses/CODEX_APACHE_2.0.txt dist/bin/LICENSE-CODEX.txt
+          $version = & dist/bin/codex.exe --version
+          if ($LASTEXITCODE -ne 0 -or $version -notmatch '0\.163\.0') { throw "Unexpected Codex version: $version" }
+          Write-Output "Official pinned Codex runtime: $version"
+      - name: Verify packaged Windows bridge and Codex app-server
+        shell: pwsh
+        run: |
+          node tests/windows-codex-smoke.cjs dist/OnCoBridge.exe dist/bin/codex.exe
           if ($LASTEXITCODE -ne 0) { exit 1 }
       - name: Build Inno Setup installer
         shell: pwsh
@@ -45,18 +66,25 @@ jobs:
       - name: Produce extension ZIP and checksums
         shell: pwsh
         run: |
-          Compress-Archive -Path extension/* -DestinationPath dist/OnCo_Extension_v1.3.3.zip -CompressionLevel Optimal
-          @("commit=$env:GITHUB_SHA",'version=1.3.3') | Set-Content -Encoding utf8 dist/SOURCE_COMMIT.txt
-          $items = @('OnCo_Setup_v1.3.3.exe','OnCo_Extension_v1.3.3.zip','OnCoBridge.exe')
+          Compress-Archive -Path extension/* -DestinationPath dist/OnCo_Extension_v1.3.4.zip -CompressionLevel Optimal
+          $runtimeRoot = Join-Path $env:RUNNER_TEMP 'onco-runtime-1.3.4'
+          New-Item -ItemType Directory -Force (Join-Path $runtimeRoot 'bin') | Out-Null
+          Copy-Item dist/OnCoBridge.exe (Join-Path $runtimeRoot 'OnCoBridge.exe')
+          Copy-Item dist/bin/codex.exe (Join-Path $runtimeRoot 'bin/codex.exe')
+          Copy-Item licenses/CODEX_APACHE_2.0.txt (Join-Path $runtimeRoot 'LICENSE-CODEX.txt')
+          Compress-Archive -Path "$runtimeRoot/*" -DestinationPath dist/OnCo_Runtime_v1.3.4.zip -CompressionLevel Optimal
+          @("commit=$env:GITHUB_SHA",'version=1.3.4') | Set-Content -Encoding utf8 dist/SOURCE_COMMIT.txt
+          $items = @('OnCo_Setup_v1.3.4.exe','OnCo_Extension_v1.3.4.zip','OnCo_Runtime_v1.3.4.zip','OnCoBridge.exe')
           $sum = foreach ($name in $items) { $entry = Get-FileHash -Algorithm SHA256 "dist/$name"; "$($entry.Hash.ToLowerInvariant())  $name" }
           $sum | Set-Content -Encoding ascii dist/SHA256SUMS.txt
           Get-ChildItem dist | Select-Object Name,Length
       - uses: actions/upload-artifact@v4
         with:
-          name: onco-v1.3.3-${{ github.sha }}
+          name: onco-v1.3.4-${{ github.sha }}
           path: |
-            dist/OnCo_Setup_v1.3.3.exe
-            dist/OnCo_Extension_v1.3.3.zip
+            dist/OnCo_Setup_v1.3.4.exe
+            dist/OnCo_Extension_v1.3.4.zip
+            dist/OnCo_Runtime_v1.3.4.zip
             dist/OnCoBridge.exe
             dist/SHA256SUMS.txt
             dist/SOURCE_COMMIT.txt

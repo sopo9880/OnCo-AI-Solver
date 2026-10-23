@@ -1,50 +1,61 @@
-import { spawn } from 'node:child_process';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { resolve, join } from 'node:path';
+// Native Messaging long-lived port framing, privileged action allowlist and migration.
+import {spawn} from 'node:child_process';
+import {mkdtemp,writeFile,readFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {resolve,join} from 'node:path';
 import assert from 'node:assert/strict';
-const appRoot = resolve(import.meta.dirname, '..');
-const work = await mkdtemp(join(tmpdir(), 'onco-native-test-'));
-async function native(message) {
-  return new Promise((resolveResult, reject) => {
-    const child = spawn(process.execPath, [join(appRoot,'bridge/main.cjs')], {
-      cwd: appRoot, env: { ...process.env, ONCO_BRIDGE_DATA_DIR: work }, stdio: ['pipe','pipe','pipe']
-    });
-    const bytes = Buffer.from(JSON.stringify(message)); const prefix = Buffer.alloc(4); prefix.writeUInt32LE(bytes.length);
-    child.stdin.end(Buffer.concat([prefix,bytes]));
-    const chunks = [], errs = [];
-    child.stdout.on('data', d => chunks.push(d));
-    child.stderr.on('data', d => errs.push(d));
-    child.once('error', reject);
-    child.once('close', () => {
-      const response = Buffer.concat(chunks);
-      if (response.length < 4) return reject(Error('Missing native response: '+Buffer.concat(errs).toString()));
-      assert.equal(response.readUInt32LE(0), response.length-4);
-      resolveResult(JSON.parse(response.subarray(4).toString()));
-    });
-  });
+const root=resolve(import.meta.dirname,'..');
+const work=await mkdtemp(join(tmpdir(),'onco-native-v134-'));
+const oldPath=join(work,'chatgpt-registration.json');
+const oldBlob=join(work,'chatgpt-session.dpapi');
+function send(messages){
+ return new Promise((resolveResult,reject)=>{
+   const child=spawn(process.execPath,[join(root,'bridge/main.cjs')],{
+     cwd:root,env:{...process.env,ONCO_BRIDGE_DATA_DIR:work},
+     stdio:['pipe','pipe','pipe'],windowsHide:true
+   });
+   const chunks=[],errors=[];
+   child.stdout.on('data',b=>chunks.push(b));
+   child.stderr.on('data',b=>errors.push(b));
+   child.once('error',reject);
+   const packet=Buffer.concat(messages.map(msg=>{
+     const data=Buffer.from(JSON.stringify(msg));
+     const prefix=Buffer.alloc(4);prefix.writeUInt32LE(data.length);
+     return Buffer.concat([prefix,data]);
+   }));
+   child.stdin.end(packet);
+   child.once('close',(code,signal)=>{
+     if(code!==0)return reject(Error('Native host non-zero exit '+code+': '+Buffer.concat(errors).toString()));
+     let remaining=Buffer.concat(chunks),out=[];
+     while(remaining.length>=4){
+       const length=remaining.readUInt32LE(0);
+       if(remaining.length<length+4)return reject(Error('Truncated native frame'));
+       out.push(JSON.parse(remaining.subarray(4,4+length).toString('utf8')));
+       remaining=remaining.subarray(length+4);
+     }
+     if(remaining.length) return reject(Error('Unexpected trailing Native Messaging bytes'));
+     resolveResult(out);
+   });
+ });
 }
-try {
-  const ping = await native({ action:'ping' });
-  assert.equal(ping.ready,true);
-  assert.equal(ping.version,'1.3.3');
-  const status = await native({action:'status'});
-  assert.equal(status.connected,false);
-  assert.equal(status.sharing,false);
-  assert.equal(status.identityStatus,'signed_out');
-  assert.equal(status.planStatus,'not_authorized');
-  const upgrade = await native({ action:'enable-plan' });
-  assert.equal(upgrade.success,false);
-  assert.match(upgrade.error,/Sign in first/);
-  const models = await native({action:'models'});
-  assert.equal(models.success,false); // no credentials, no API call
-  assert.match(models.error,/로그인/);
-  const unknown = await native({action:'import-cookies'});
-  assert.equal(unknown.success,false);
-  const registration = JSON.parse(await readFile(join(work,'chatgpt-registration.json'),'utf8'));
-  assert.match(registration.hostId,/^urn:uuid:/);
-  assert.equal(Object.hasOwn(registration,'access_token'),false);
-  console.log('PASS: Native Messaging framing, status, no-token inference guard, registration persistence');
-} finally {
-  await rm(work,{recursive:true,force:true});
-}
+try{
+ await writeFile(oldPath,'old registration');
+ await writeFile(oldBlob,'encrypted legacy');
+ const results=await send([{id:1,action:'ping'},{id:2,action:'status'},
+   {id:3,action:'enable-plan'},{id:4,action:'import-cookies'},{id:5,action:'models'}]);
+ assert.equal(results.length,5);
+ const byId=new Map(results.map(response=>[response.id,response]));
+ assert.deepEqual(Array.from(byId.keys()).sort(),[1,2,3,4,5]);
+ assert.equal(byId.get(1).ready,true);
+ assert.equal(byId.get(1).version,'1.3.4');
+ assert.equal(byId.get(2).connected,false);
+ assert.equal(byId.get(2).sharing,false);
+ assert.equal(byId.get(2).identityStatus,'signed_out');
+ assert.equal(byId.get(3).success,false,'retired self-managed OAuth permission action blocked');
+ assert.equal(byId.get(4).success,false,'cookie import not supported');
+ assert.equal(byId.get(5).success,false,'models must require a Codex account');
+ assert.ok(!JSON.stringify(results).includes('access_token'));
+ assert.equal(await readFile(oldPath,'utf8'),'old registration');
+ assert.equal(await readFile(oldBlob,'utf8'),'encrypted legacy');
+ console.log('PASS: persistent native host multiple frames, Codex status, old OAuth blocked, legacy files preserved');
+}finally{await rm(work,{recursive:true,force:true});}

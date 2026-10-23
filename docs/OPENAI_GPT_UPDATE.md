@@ -1,5 +1,7 @@
 # OnCo AI Solver v1.2.0 — Gemini + GPT + ChatGPT 로그인
 
+> **이 문서는 v1.2.0의 이전 인증 구조 기록입니다.** v1.3.4에서는 ChatGPT 계정 경로를 공식 Codex app-server로 교체했습니다. 현재 사용 방법은 [README](../README.md)를 참고하세요. 이전 OAuth/DPAPI 절차를 새 버전에 적용하지 마세요.
+
 ## 변경사항
 
 - API 제공자 선택: **Gemini/Gemma API 키**, **OpenAI GPT API 키**, **ChatGPT 계정 로그인(선택적 로컬 도우미)**
