@@ -15,6 +15,8 @@ assert.ok(manifest.content_scripts.some(item => item.js.includes('submission-fee
 assert.ok(!/\.click\(\)\s*;.*제출/.test(script),'Extension never automatically submits');
 assert.ok(!script.includes('fetch('),'No private OnCo verdict API');
 assert.ok(main.includes('getEditors'),'Capture the Monaco editor before navigation');
+assert.ok(script.includes('REVIEW_BEFORE_SUBMIT'),'Pre-submit review requires a dedicated user click');
+assert.ok(script.includes("btn.type='button'"),'Precheck button cannot submit a form');
 assert.ok(!main.includes('fetch('),'MAIN-world bridge does not access any endpoints');
 
 const shim={exports:{}};
