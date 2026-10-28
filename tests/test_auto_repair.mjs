@@ -193,6 +193,19 @@ assert.equal((await send({action:'GET_PENDING_SUBMISSION'})).pending,null);
 const missingSubmission=await send({action:'REVISE_SUBMISSION_FAILURE',
   id:submissionId,requestId:submissionId,verdict:'wrong'});
 assert.equal(missingSubmission.success,false,'Stale submission revisions must stop');
+currentCode='print(0)';
+const precheck=await send({action:'REVIEW_BEFORE_SUBMIT',
+  requestId:'precheck-123-1',problem:{title:problem.title,description:problem.description,
+    language:problem.language,identity},code:'print(0)'});
+assert.equal(precheck.success,true,precheck.error);
+assert.equal(precheck.unchanged,false);
+assert.equal(precheck.code,'print(11)');
+assert.equal(currentCode,'print(0)','Precheck does not submit or change the editor');
+storage.onco_submit_precheck=false;
+const disabledPrecheck=await send({action:'REVIEW_BEFORE_SUBMIT',
+  requestId:'precheck-123-2',problem:{title:problem.title,description:problem.description,
+    language:problem.language,identity},code:'print(0)'});
+assert.equal(disabledPrecheck.success,false,'Precheck opt-out must be respected');
 
 assert.ok(!bg.includes('button[aria-label="제출"]'));
 console.log('PASS: OpenAI preview/apply, Gemini replacement, Codex auto mode, no submit, stale check, invalid feedback, retry cap, cancellation');
