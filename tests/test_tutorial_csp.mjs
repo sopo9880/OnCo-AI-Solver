@@ -15,7 +15,7 @@ const [extensionHtml, installerHtml, extensionJs, installerJs] = await Promise.a
 
 assert.equal(extensionHtml, installerHtml, 'Installer and MV3 extension tutorial must match');
 assert.equal(extensionJs, installerJs, 'Both contexts must ship identical external tutorial JS');
-assert.match(extensionHtml, /<small>v1\.3\.5<\/small>/);
+assert.match(extensionHtml, /<small>v1\.3\.6<\/small>/);
 assert.doesNotMatch(extensionHtml, /\son[a-z]+\s*=/i,
   'inline event handlers violate script-src self');
 assert.doesNotMatch(extensionHtml, /\bhref\s*=\s*["']\s*javascript:/i);

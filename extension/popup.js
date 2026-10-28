@@ -18,6 +18,9 @@
   const logSection = document.getElementById("log-section");
   const btnLogDownload = document.getElementById("btn-log-download");
   const btnLogClear = document.getElementById("btn-log-clear");
+  const testModeSelect = document.getElementById("test-feedback-mode");
+  const testRetriesSelect = document.getElementById("test-feedback-retries");
+  const testFeedbackStatus = document.getElementById("test-feedback-status");
 
 
   function renderLogs(logs) {
@@ -170,6 +173,33 @@
   const API_KEY_NAMES = {
     gemini: "onco_api_key", openai: "onco_openai_api_key"
   };
+
+  const TEST_MODES = ["off", "assist", "replace", "auto"];
+  chrome.storage.local.get(["onco_test_mode", "onco_test_max_retries"], (data) => {
+    testModeSelect.value = TEST_MODES.includes(data.onco_test_mode) ? data.onco_test_mode : "assist";
+    const count = Number.isInteger(data.onco_test_max_retries)
+      ? Math.max(1, Math.min(5, data.onco_test_max_retries)) : 3;
+    testRetriesSelect.value = String(count);
+    testRetriesSelect.disabled = testModeSelect.value !== "auto";
+  });
+  testModeSelect.addEventListener("change", () => {
+    const mode = TEST_MODES.includes(testModeSelect.value) ? testModeSelect.value : "assist";
+    testRetriesSelect.disabled = mode !== "auto";
+    chrome.storage.local.set({onco_test_mode: mode}, () => {
+      testFeedbackStatus.textContent = mode === "auto"
+        ? "자동 재테스트가 활성화됐습니다. 테스트 버튼 클릭 후 실패 시 수정합니다."
+        : mode === "replace" ? "테스트 실패 시 코드를 교체합니다. 재테스트는 수동입니다."
+        : mode === "assist" ? "테스트 실패 시 수정안을 표시하고 사용자 승인을 기다립니다."
+        : "테스트 AI 연동을 사용하지 않습니다.";
+    });
+  });
+  testRetriesSelect.addEventListener("change", () => {
+    const value = Math.max(1, Math.min(5, Number(testRetriesSelect.value) || 3));
+    chrome.storage.local.set({onco_test_max_retries: value}, () => {
+      testFeedbackStatus.textContent = "최대 자동 수정 횟수: " + value + "회";
+    });
+  });
+
   let provider = "gemini";
   const modelChoice = { ...AUTO_VALUES };
   const storedKeys = { gemini: false, openai: false };

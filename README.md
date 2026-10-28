@@ -2,12 +2,24 @@
 
 OnCo 코딩 문제 화면에서 문제 추출, Gemini/OpenAI API 키 기반 AI 풀이, **ChatGPT 계정의 Codex app-server 모델 사용**, 코드 에디터 삽입을 지원하는 비공식 Chrome / Naver Whale 확장입니다.
 
-## Windows 설치 및 업데이트 (v1.3.5)
+## Windows 설치 및 업데이트 (v1.3.6)
 
-1. [GitHub Releases](https://github.com/sopo9880/OnCo-AI-Solver/releases)에서 `OnCo_Setup_v1.3.5.exe`를 설치합니다. 이전 버전은 제거하지 않고 **같은 설치 폴더**에 덮어 설치하세요.
+1. [GitHub Releases](https://github.com/sopo9880/OnCo-AI-Solver/releases)에서 `OnCo_Setup_v1.3.6.exe`를 설치합니다. 이전 버전은 제거하지 않고 **같은 설치 폴더**에 덮어 설치하세요.
 2. 설치 안내의 **Chrome / Whale → 새 탭에서 열기**로 `chrome://extensions` 또는 `whale://extensions`를 엽니다. 외부 앱 확인창을 허용해야 할 수 있습니다. 열리지 않으면 **주소 복사**를 사용하세요.
 3. 처음 설치하는 경우 개발자 모드를 켜고 **압축 해제된 확장 프로그램 로드**에서 설치 폴더의 `extension`을 선택합니다. 기존 설치라면 기존 확장의 **새로고침(↻)**만 누릅니다. 확장 ID는 바뀌지 않습니다.
 4. 확장 팝업의 **AI 서비스 → ChatGPT · Codex 로그인** 또는 기존 **Gemini / OpenAI API 키** 중 하나를 선택합니다.
+
+## v1.3.6 테스트 실패 AI 자동 수정
+
+OnCo에서 **사용자가 직접 테스트 버튼을 누르면** 테스트 결과를 관찰합니다. React 테스트 결과 패널의 공개 결과만 수집하며 **제출 버튼은 자동 클릭하지 않습니다.**
+
+- 기본 설정: **수정 코드 제안만 표시**. 기존 코드를 유지하며, 사용자가 제안 코드를 검토하고 **수정 코드 적용**을 눌러야 바뀝니다.
+- 선택 설정: **AI 자동 코드 삽입**(재테스트는 수동) 또는 **자동 수정 및 재테스트**(기본 최대 3회, 1~5회 설정 가능).
+- 확장 팝업의 **테스트 실패 시 AI**에서 설정합니다. 저장 키는 `onco_test_mode`와 `onco_test_max_retries`이며, 이전 버전의 사용자 저장 설정과 API 키는 유지합니다.
+- OnCo의 **테스트 결과** 영역에서 실패 케이스의 입력값·예상 출력값·실제 출력값을 추출합니다. 접힌 Radix Accordion은 필요 시 펼친 후 원래 상태로 복원합니다.
+- 오류가 감지되면 기존 AI 공급자(Gemini / OpenAI API / ChatGPT Codex)와 선택 모델을 그대로 사용해 현재 코드의 수정안을 만듭니다. 기존 모델의 설정·키를 변경하거나 다른 공급자로 자동 과금 전환하지 않습니다.
+- 코드 교체 전에 **현재 문제·현재 코드의 일치 여부**를 재검증하고, 사용자가 코드를 바꿨거나 문제를 전환한 경우 덮어쓰지 않습니다. 중지 버튼·최대 횟수·실패 내역·이전 코드 복원 UI가 제공됩니다.
+- 결과 화면이 아직 갱신되지 않았거나 실행 완료를 판단할 근거가 없으면 **AI를 자동 호출하지 않습니다.** 테스트 성공은 최종 채점 성공을 보장하지 않습니다. 자동 재테스트와 계정별 동작은 릴리스 후 Windows·Chrome·Whale 실기기 검증이 필요합니다.
 
 ## v1.3.5 설치 안내 CSP 수정
 
@@ -33,7 +45,7 @@ v1.3.4부터 OnCo가 직접 `dynamic_agent_client` OAuth URL을 만들거나 Ope
 - 이전 v1.3.0~v1.3.3의 `chatgpt-registration.json`, `chatgpt-session.dpapi`는 **자동 삭제·복호화·수정되지 않습니다.** 새 Codex 인증 방식은 별도의 로그인 동의가 필요합니다. 기존 Gemini/OpenAI API 키 및 브라우저 확장 설정도 그대로 유지합니다.
 - 확장에는 로그인 상태, 필요할 때 일회용 로그인 코드, 모델 목록·생성 답변만 전달합니다. Codex 토큰·비밀번호·프로필 이메일은 전달하지 않습니다.
 - Codex AI 생성은 `approvalPolicy: never`, `sandbox: read-only`, 도구·셸·웹 검색 비활성화로 제한합니다. Codex가 보내는 명령 실행 요청은 거부합니다. 실제 Windows 로그인과 모델 호출 성공은 **릴리스 후 실기기에서 확인**해야 합니다.
-- **수동 구성용:** `OnCo_Runtime_v1.3.5.zip`에는 `OnCoBridge.exe` 및 `bin/codex.exe`가 포함됩니다. 별도 다운로드한 `OnCoBridge.exe`만으로는 Codex가 작동하지 않으니 일반 사용자는 **Setup**을 설치하세요.
+- **수동 구성용:** `OnCo_Runtime_v1.3.6.zip`에는 `OnCoBridge.exe` 및 `bin/codex.exe`가 포함됩니다. 별도 다운로드한 `OnCoBridge.exe`만으로는 Codex가 작동하지 않으니 일반 사용자는 **Setup**을 설치하세요.
 
 ## 구성
 

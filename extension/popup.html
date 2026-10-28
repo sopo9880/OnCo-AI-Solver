@@ -364,6 +364,29 @@
   </div>
 
   <hr class="divider" />
+  <section id="test-feedback-settings">
+    <label for="test-feedback-mode">테스트 실패 시 AI</label>
+    <select id="test-feedback-mode">
+      <option value="off">연동 사용 안 함</option>
+      <option value="assist" selected>수정 코드 제안만 표시 (기본)</option>
+      <option value="replace">AI가 수정 코드 자동 삽입 (재테스트 수동)</option>
+      <option value="auto">AI 수정 + 테스트 자동 재실행</option>
+    </select>
+    <div class="row" style="align-items:center">
+      <label for="test-feedback-retries" style="flex:1;margin-bottom:0">자동 재수정 최대 횟수</label>
+      <select id="test-feedback-retries" style="flex:1">
+        <option value="1">1회</option>
+        <option value="2">2회</option>
+        <option value="3" selected>3회 (기본)</option>
+        <option value="4">4회</option>
+        <option value="5">5회</option>
+      </select>
+    </div>
+    <p class="hint">OnCo의 테스트 버튼을 직접 누른 경우에만 감지합니다. 수정 제안이 기본이며 자동 수정·재테스트는 직접 선택해야 활성화됩니다. 제출 버튼은 누르지 않습니다.</p>
+    <div id="test-feedback-status" role="status" class="hint" aria-live="polite"></div>
+  </section>
+
+  <hr class="divider" />
   <div id="status">서비스 및 모델을 선택해주세요.</div>
 
   <details id="log-section">

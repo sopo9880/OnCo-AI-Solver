@@ -142,7 +142,7 @@ class CodexClient {
   }
   async boot() {
     if (process.platform !== 'win32') throw Error('OnCo Codex 연결은 Windows 설치판에서 사용할 수 있습니다.');
-    await access(this.binary).catch(()=>{throw Error('Codex 실행 파일이 없습니다. OnCo Setup v1.3.5를 다시 설치해주세요.');});
+    await access(this.binary).catch(()=>{throw Error('Codex 실행 파일이 없습니다. OnCo Setup v1.3.6를 다시 설치해주세요.');});
     await mkdir(CODEX_HOME, { recursive: true, mode: 0o700 });
     const child = this.startChild(this.binary, RUNNER_ARGS, {
       cwd: CODEX_HOME, env: codexEnvironment(), shell: false,
@@ -164,7 +164,7 @@ class CodexClient {
       this.receive(msg);
     });
     await this.call('initialize',{
-      clientInfo:{name:'onco-ai-solver',title:'OnCo AI Solver',version:'1.3.5'},
+      clientInfo:{name:'onco-ai-solver',title:'OnCo AI Solver',version:'1.3.6'},
       capabilities:{experimentalApi:false}
     },45000);
     this.send({method:'initialized'});
@@ -364,7 +364,7 @@ async function solve(data={}) {
 }
 async function dispatch(message) {
   const action=message?.action;
-  if(action==='ping')return {ready:true,version:'1.3.5',codexVersion:CODEX_APP_VERSION};
+  if(action==='ping')return {ready:true,version:'1.3.6',codexVersion:CODEX_APP_VERSION};
   if(action==='status')return status();
   if(action==='signin')return beginCodexLogin('device');
   if(action==='signin-browser')return beginCodexLogin('browser');
