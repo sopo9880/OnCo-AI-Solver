@@ -84,7 +84,7 @@
   if (!scope.document || !scope.chrome?.runtime?.sendMessage || !scope.MutationObserver) return;
 
   const doc = scope.document;
-  let mode = 'suggest', historyEnabled = true;
+  let mode = 'suggest', historyEnabled = true, precheckEnabled = true;
   let active = null, nextId = 0, settling = null, fallback = null;
   const freshId = () => 'submit-' + Date.now() + '-' + (++nextId);
   function request(action, args={}) {
@@ -146,8 +146,14 @@
         background:'#081321',whiteSpace:'pre',fontSize:'11px'});
       root.appendChild(pre);
       if (!answer.applied) addButton(root,'수정 코드 적용',async()=>{
-        if(!active || active.id!==answer.id) throw Error('이전 제출 기록이 만료됐습니다.');
-        const r=await request('APPLY_SUBMISSION_REVISION',{id:answer.id,code:answer.code});
+        let r;
+        if(answer.precheck){
+          r=await request('APPLY_TEST_REVISION',{identity:answer.precheck.identity,
+            expectedCode:answer.precheck.original,code:answer.code});
+        }else{
+          if(!active || active.id!==answer.id) throw Error('이전 제출 기록이 만료됐습니다.');
+          r=await request('APPLY_SUBMISSION_REVISION',{id:answer.id,code:answer.code});
+        }
         if(!r.applied)throw Error('수정 코드 적용이 확인되지 않았습니다.');
         panel('코드 적용 완료','공개 테스트를 다시 실행한 후 직접 제출해주세요.');
       });
@@ -199,6 +205,50 @@
     if(typeof result.code!=='string'||!result.code.trim())throw Error('제출 당시 코드를 확보하지 못했습니다.');
     return captureSubmission(p,result.code);
   }
+  async function runPrecheck() {
+    const p=problem();
+    if(!p)throw Error('실제 문제 화면에서만 제출 전 점검을 할 수 있습니다.');
+    let code=readMainWorldCode();
+    if(!code) code=(await request('GET_MONACO_CODE')).code;
+    if(typeof code!=='string'||!code.trim())throw Error('편집기의 코드를 확인하지 못했습니다.');
+    panel('제출 전 경계 조건 점검','사용자가 요청한 AI 점검입니다. 실제 채점이나 제출은 실행하지 않습니다.');
+    const result=await request('REVIEW_BEFORE_SUBMIT',{
+      requestId:'precheck-'+Date.now()+'-'+(++nextId),problem:p,code
+    });
+    if(result.unchanged){
+      panel('점검 결과','AI가 코드 변경을 제안하지 않았습니다. 실제 비공개 채점 통과를 보장하지는 않습니다.');
+    }else{
+      panel('제출 전 수정안','경계값 또는 성능에 관한 코드 수정 후보입니다. 확인 후 적용할 수 있습니다.',
+        {code:result.code,precheck:{identity:p.identity,original:code},applied:false});
+    }
+  }
+  function refreshPrecheckButton(){
+    const old=doc.getElementById('onco-pre-submit-review');
+    if(!precheckEnabled){old?.remove();return;}
+    const target=[...doc.querySelectorAll('button')].find(btn=>
+      plain(btn.getAttribute('aria-label'),60)==='제출'||
+      plain(btn.innerText || btn.textContent,70)==='제출');
+    if(!target || !problem()){old?.remove();return;}
+    if(old?.nextElementSibling===target)return;
+    old?.remove();
+    const btn=doc.createElement('button');
+    btn.type='button';btn.id='onco-pre-submit-review';btn.textContent='제출 전 AI 점검';
+    Object.assign(btn.style,{background:'#315980',color:'#f7faff',
+      border:'1px solid #6685aa',borderRadius:'6px',
+      padding:'6px 10px',cursor:'pointer',marginRight:'7px'});
+    btn.addEventListener('click',event=>{
+      if(!event.isTrusted)return;
+      runPrecheck().catch(e=>panel('제출 전 점검 오류',e.message));
+    });
+    target.before(btn);
+  }
+  let precheckScheduled=false;
+  function schedulePrecheck(){
+    if(precheckScheduled)return;
+    precheckScheduled=true;
+    setTimeout(()=>{precheckScheduled=false;refreshPrecheckButton();},250);
+  }
+
   function isSubmitButton(event) {
     const btn=event.target?.closest?.('button,[role="button"]');
     if(!btn || btn.disabled || btn.getAttribute?.('aria-disabled')==='true')return false;
@@ -281,12 +331,15 @@
     if(records.some(r=>[...(r.removedNodes||[])].some(node=>
       node.matches?.(SELECTORS)||node.querySelector?.(SELECTORS))))active.seenReset=true;
     inspect();
+    schedulePrecheck();
   });
   observer.observe(doc.documentElement,{childList:true,subtree:true,characterData:true,
     attributes:true,attributeFilter:['aria-busy','data-state']});
-  scope.chrome.storage.local.get(['onco_submit_mode','onco_submit_history'],state=>{
+  scope.chrome.storage.local.get(['onco_submit_mode','onco_submit_history','onco_submit_precheck'],state=>{
     mode=normalizeMode(state.onco_submit_mode);
     historyEnabled=state.onco_submit_history!==false;
+    precheckEnabled=state.onco_submit_precheck!==false;
+    schedulePrecheck();
     if(mode!=='off')resume();
   });
   scope.chrome.storage.onChanged?.addListener((changes,area)=>{
@@ -297,6 +350,10 @@
       else if(!active)resume();
     }
     if(changes.onco_submit_history)historyEnabled=changes.onco_submit_history.newValue!==false;
+    if(changes.onco_submit_precheck){
+      precheckEnabled=changes.onco_submit_precheck.newValue!==false;
+      schedulePrecheck();
+    }
   });
   scope.addEventListener?.('pagehide',stopTimers);
 })(globalThis);
