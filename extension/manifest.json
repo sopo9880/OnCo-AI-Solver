@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "OnCo AI Solver",
-  "version": "1.3.5",
+  "version": "1.3.6",
   "description": "OnCo code assistant: local Codex app-server ChatGPT sign-in or optional Gemini/OpenAI API keys",
   "permissions": [
     "activeTab",
@@ -26,7 +26,8 @@
       ],
       "js": [
         "problem-context.js",
-        "content.js"
+        "content.js",
+        "test-feedback.js"
       ],
       "run_at": "document_idle"
     }
