@@ -41,7 +41,8 @@ try{
   assert.equal(frames.length,2);
   const ping=frames.find(x=>x.id===1),status=frames.find(x=>x.id===2);
   assert.equal(ping?.ready,true);
-  assert.equal(ping?.version,'1.3.6');
+  const expectedVersion=JSON.parse(readFileSync(join(__dirname,'..','extension','manifest.json'),'utf8')).version;
+  assert.equal(ping?.version,expectedVersion,'Packaged Windows host version must match the extension manifest');
   assert.equal(ping?.codexVersion,'0.163.0');
   assert.equal(status?.success,true,status?.error||'Native status unavailable');
   assert.equal(status.available,true,status.error||'Codex app-server did not initialize');
