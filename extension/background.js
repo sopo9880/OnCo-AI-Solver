@@ -958,7 +958,8 @@ async function captureUserSubmission(tabId,message) {
 async function submissionContext(tabId) {
   const s=await readSubmission(tabId);
   return s ? {id:s.id,identity:s.identity,title:s.title,baseline:s.baseline,
-    originPath:s.originPath,savedAt:s.savedAt} : null;
+    originPath:s.originPath,savedAt:s.savedAt,
+    candidate:typeof s.candidate==='string'?s.candidate:null} : null;
 }
 async function readSubmissionHistory(tabId,identity) {
   const key=submissionHistoryKey(tabId);
