@@ -205,10 +205,11 @@
   });
 
   const SUBMISSION_MODES = ["off","suggest","replace"];
-  chrome.storage.local.get(["onco_submit_mode","onco_submit_history"], data => {
+  chrome.storage.local.get(["onco_submit_mode","onco_submit_history","onco_submit_precheck"], data => {
     submissionModeSelect.value = SUBMISSION_MODES.includes(data.onco_submit_mode) ?
       data.onco_submit_mode : "suggest";
     submissionHistoryToggle.checked = data.onco_submit_history !== false;
+    submissionPrecheckToggle.checked = data.onco_submit_precheck !== false;
   });
   submissionModeSelect.addEventListener("change", () => {
     const mode = SUBMISSION_MODES.includes(submissionModeSelect.value) ?
@@ -217,6 +218,13 @@
       submissionFeedbackStatus.textContent = mode==="off" ? "제출 실패 분석을 사용하지 않습니다." :
         mode==="replace" ? "코드 변경이 없고 에디터가 열려 있으면 AI 수정 코드를 적용합니다. 제출은 수동입니다." :
         "제출 실패 시 수정안을 제안하고 기존 코드는 그대로 둡니다.";
+    });
+  });
+  submissionPrecheckToggle.addEventListener("change", () => {
+    chrome.storage.local.set({onco_submit_precheck:submissionPrecheckToggle.checked}, () => {
+      submissionFeedbackStatus.textContent = submissionPrecheckToggle.checked ?
+        "문제 화면에 제출 전 AI 점검 버튼이 표시됩니다. 버튼을 눌러야 점검합니다." :
+        "제출 전 AI 점검 버튼을 숨겼습니다.";
     });
   });
   submissionHistoryToggle.addEventListener("change", () => {
