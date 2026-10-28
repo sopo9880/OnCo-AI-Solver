@@ -387,6 +387,26 @@
   </section>
 
   <hr class="divider" />
+  <section id="submission-feedback-settings">
+    <label for="submission-feedback-mode">제출 실패 시 AI</label>
+    <select id="submission-feedback-mode">
+      <option value="off">연동 사용 안 함</option>
+      <option value="suggest" selected>AI 수정 코드 제안만 표시 (기본)</option>
+      <option value="replace">가능하면 코드 자동 적용 (재제출 수동)</option>
+    </select>
+    <label style="display:flex;align-items:center;gap:8px;margin:8px 0">
+      <input id="submission-feedback-history" type="checkbox" checked style="width:auto" />
+      동일 문제의 실패 이력 참고 (현재 브라우저 세션 한정)
+    </label>
+    <label style="display:flex;align-items:center;gap:8px;margin:8px 0">
+      <input id="submission-feedback-precheck" type="checkbox" checked style="width:auto" />
+      제출 전 AI 경계 조건 점검 버튼 표시 (점검 실행은 수동)
+    </label>
+    <p class="hint">직접 제출한 경우만 기록합니다. 채점 결과를 읽지 못하면 화면의 오류 유형을 수동 선택할 수 있습니다. 숨겨진 테스트 입력을 수집하거나 제출 버튼을 자동으로 누르지 않습니다. 코드가 바뀌면 자동 적용하지 않습니다.</p>
+    <div id="submission-feedback-status" role="status" class="hint" aria-live="polite"></div>
+  </section>
+
+  <hr class="divider" />
   <div id="status">서비스 및 모델을 선택해주세요.</div>
 
   <details id="log-section">
