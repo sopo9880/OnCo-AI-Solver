@@ -23,6 +23,7 @@
   const testFeedbackStatus = document.getElementById("test-feedback-status");
   const submissionModeSelect = document.getElementById("submission-feedback-mode");
   const submissionHistoryToggle = document.getElementById("submission-feedback-history");
+  const submissionPrecheckToggle = document.getElementById("submission-feedback-precheck");
   const submissionFeedbackStatus = document.getElementById("submission-feedback-status");
 
 
