@@ -21,6 +21,9 @@
   const testModeSelect = document.getElementById("test-feedback-mode");
   const testRetriesSelect = document.getElementById("test-feedback-retries");
   const testFeedbackStatus = document.getElementById("test-feedback-status");
+  const submissionModeSelect = document.getElementById("submission-feedback-mode");
+  const submissionHistoryToggle = document.getElementById("submission-feedback-history");
+  const submissionFeedbackStatus = document.getElementById("submission-feedback-status");
 
 
   function renderLogs(logs) {
@@ -197,6 +200,28 @@
     const value = Math.max(1, Math.min(5, Number(testRetriesSelect.value) || 3));
     chrome.storage.local.set({onco_test_max_retries: value}, () => {
       testFeedbackStatus.textContent = "최대 자동 수정 횟수: " + value + "회";
+    });
+  });
+
+  const SUBMISSION_MODES = ["off","suggest","replace"];
+  chrome.storage.local.get(["onco_submit_mode","onco_submit_history"], data => {
+    submissionModeSelect.value = SUBMISSION_MODES.includes(data.onco_submit_mode) ?
+      data.onco_submit_mode : "suggest";
+    submissionHistoryToggle.checked = data.onco_submit_history !== false;
+  });
+  submissionModeSelect.addEventListener("change", () => {
+    const mode = SUBMISSION_MODES.includes(submissionModeSelect.value) ?
+      submissionModeSelect.value : "suggest";
+    chrome.storage.local.set({onco_submit_mode:mode}, () => {
+      submissionFeedbackStatus.textContent = mode==="off" ? "제출 실패 분석을 사용하지 않습니다." :
+        mode==="replace" ? "코드 변경이 없고 에디터가 열려 있으면 AI 수정 코드를 적용합니다. 제출은 수동입니다." :
+        "제출 실패 시 수정안을 제안하고 기존 코드는 그대로 둡니다.";
+    });
+  });
+  submissionHistoryToggle.addEventListener("change", () => {
+    chrome.storage.local.set({onco_submit_history:submissionHistoryToggle.checked}, () => {
+      submissionFeedbackStatus.textContent = submissionHistoryToggle.checked ?
+        "실패한 제출 이력을 현재 브라우저 세션에서 참고합니다." : "이전 실패 이력 활용을 중지했습니다.";
     });
   });
 

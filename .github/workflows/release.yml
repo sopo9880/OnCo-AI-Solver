@@ -49,7 +49,7 @@ jobs:
         with:
           run-id: ${{ steps.source.outputs.run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          name: onco-v1.3.6-${{ steps.source.outputs.sha }}
+          name: onco-v1.3.7-${{ steps.source.outputs.sha }}
           path: dist
       - name: Confirm version, source commit and file hashes
         shell: bash
@@ -64,10 +64,10 @@ jobs:
           base = Path('dist')
           meta_lines = (base/'SOURCE_COMMIT.txt').read_text(encoding='utf-8-sig').splitlines()
           meta = dict(line.split('=', 1) for line in meta_lines if '=' in line)
-          expected = {'commit': os.environ['SOURCE_SHA'], 'version': '1.3.6'}
+          expected = {'commit': os.environ['SOURCE_SHA'], 'version': '1.3.7'}
           if meta != expected or len(meta_lines) != len(expected):
               raise SystemExit(f'Build metadata mismatch: {meta!r}')
-          names = {'OnCo_Setup_v1.3.6.exe','OnCo_Extension_v1.3.6.zip','OnCo_Runtime_v1.3.6.zip','OnCoBridge.exe'}
+          names = {'OnCo_Setup_v1.3.7.exe','OnCo_Extension_v1.3.7.zip','OnCo_Runtime_v1.3.7.zip','OnCoBridge.exe'}
           lines = (base/'SHA256SUMS.txt').read_text(encoding='utf-8-sig').splitlines()
           verified = set()
           for line in lines:
@@ -93,11 +93,11 @@ jobs:
           SOURCE_SHA: ${{ steps.source.outputs.sha }}
         run: |
           set -euo pipefail
-          tag=v1.3.6
+          tag=v1.3.7
           if gh release view "$tag" >/dev/null 2>&1; then
             echo "Release already exists. Refusing to overwrite published artifacts."
             exit 0
           fi
-          gh release create "$tag" --target "$SOURCE_SHA" --title 'OnCo AI Solver v1.3.6' \
-            --notes 'Add opt-in OnCo test-feedback AI debugging: read public test cases from the DOM, provide AI revision suggestions by default, optionally apply modified code and rerun tests up to the configured cap. Preserve Gemini/OpenAI API-key and Codex authentication. Never auto-submit. Includes stale-code protection and regression tests. Official Windows build artifacts are reused unchanged in release. Installer unsigned.' \
-            dist/OnCo_Setup_v1.3.6.exe dist/OnCo_Extension_v1.3.6.zip dist/OnCo_Runtime_v1.3.6.zip dist/OnCoBridge.exe dist/SHA256SUMS.txt dist/SOURCE_COMMIT.txt
+          gh release create "$tag" --target "$SOURCE_SHA" --title 'OnCo AI Solver v1.3.7' \
+            --notes 'Add user-triggered submission verdict analysis with session-scoped source snapshots, visible grading result detection, manual verdict fallback, AI edge-case repair suggestions and guarded optional code replacement. Preserve v1.3.6 test feedback and Gemini/OpenAI/Codex integration. No private judge APIs, no automatic submissions. Official Windows CI artifacts verified and reused without rebuild; installer unsigned.' \
+            dist/OnCo_Setup_v1.3.7.exe dist/OnCo_Extension_v1.3.7.zip dist/OnCo_Runtime_v1.3.7.zip dist/OnCoBridge.exe dist/SHA256SUMS.txt dist/SOURCE_COMMIT.txt

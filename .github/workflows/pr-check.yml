@@ -22,6 +22,8 @@ jobs:
           node --check extension/content.js
           node --check extension/problem-context.js
           node --check extension/test-feedback.js
+          node --check extension/submission-feedback.js
+          node --check extension/submission-capture-main.js
           node --check extension/popup.js
           node --check bridge/main.cjs
           node -e "for (const x of ['extension/manifest.json','bridge/sea-config.json']) JSON.parse(require('fs').readFileSync(x))"
