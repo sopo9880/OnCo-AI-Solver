@@ -326,12 +326,13 @@
     }catch(_){ /* no submission in this tab */ }
   }
   const observer=new scope.MutationObserver(records=>{
+    // The pre-submit button must also follow SPA problem loading without any pending submission.
+    schedulePrecheck();
     if(!active)return;
     if(records.length && records.every(x=>x.target?.closest?.('#onco-submission-feedback-panel')))return;
     if(records.some(r=>[...(r.removedNodes||[])].some(node=>
       node.matches?.(SELECTORS)||node.querySelector?.(SELECTORS))))active.seenReset=true;
     inspect();
-    schedulePrecheck();
   });
   observer.observe(doc.documentElement,{childList:true,subtree:true,characterData:true,
     attributes:true,attributeFilter:['aria-busy','data-state']});
@@ -346,7 +347,11 @@
     if(area!=='local')return;
     if(changes.onco_submit_mode){
       mode=normalizeMode(changes.onco_submit_mode.newValue);
-      if(mode==='off'){stopTimers();active=null;}
+      if(mode==='off'){
+        const prior=active;stopTimers();active=null;
+        if(prior?.working)request('CANCEL_TEST_REVISION',{requestId:prior.id}).catch(()=>{});
+        if(prior?.id)request('CLEAR_SUBMISSION_SNAPSHOT',{id:prior.id}).catch(()=>{});
+      }
       else if(!active)resume();
     }
     if(changes.onco_submit_history)historyEnabled=changes.onco_submit_history.newValue!==false;
