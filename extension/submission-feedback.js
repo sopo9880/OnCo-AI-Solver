@@ -265,9 +265,14 @@
       if(!answer.pending || active)return;
       const p=answer.pending;
       active={id:p.id,baseline:p.baseline||'',originPath:p.originPath||'',
-        identity:p.identity,working:false,finished:false,processed:'',seenReset:false};
-      scheduleManual(active);
-      inspect();
+        identity:p.identity,working:false,finished:Boolean(p.candidate),processed:'',seenReset:false};
+      if(typeof p.candidate==='string'&&p.candidate){
+        panel('이전 제출 수정안','이전 제출 실패 분석에서 생성한 코드입니다. 현재 문제를 확인하고 적용하거나 복사하세요.',
+          {code:p.candidate,applied:false,id:p.id});
+      }else{
+        scheduleManual(active);
+        inspect();
+      }
     }catch(_){ /* no submission in this tab */ }
   }
   const observer=new scope.MutationObserver(records=>{
