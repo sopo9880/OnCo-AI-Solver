@@ -152,5 +152,47 @@ const cancelled=await pending;
 assert.equal(cancelled.success,false);
 assert.ok(cancelled.error.includes('ECANCEL'));
 assert.equal(currentCode,'print(0)');
+// v1.3.7: submission source snapshots are session-only and never auto-submit.
+hanging=false;
+storage.onco_provider='openai';
+storage.onco_submit_mode='suggest';
+storage.onco_submit_history=true;
+currentCode='print(0)';
+const submissionId='submit-123456-1';
+const submission={id:submissionId,identity,title:problem.title,
+  description:problem.description,language:problem.language,
+  code:'print(0)',baseline:'',originPath:'/practice'};
+const badSender=await send({action:'GET_PENDING_SUBMISSION'},{tab:{id:17,url:'https://evil.example/'}});
+assert.equal(badSender.success,false,'Only an OnCo tab may inspect submission snapshots');
+const recorded=await send({action:'CAPTURE_SUBMISSION',snapshot:submission});
+assert.equal(recorded.success,true,recorded.error);
+const pendingSubmission=await send({action:'GET_PENDING_SUBMISSION'});
+assert.equal(pendingSubmission.success,true);
+assert.equal(pendingSubmission.pending.id,submissionId);
+assert.ok(!Object.hasOwn(pendingSubmission.pending,'code'),
+  'Never send stored submitted code to a result page');
+const invalidVerdict=await send({action:'REVISE_SUBMISSION_FAILURE',
+  id:submissionId,requestId:submissionId,verdict:'accepted'});
+assert.equal(invalidVerdict.success,false,'Never repair an accepted submission');
+const submittedFailure=await send({action:'REVISE_SUBMISSION_FAILURE',
+  id:submissionId,requestId:submissionId,verdict:'wrong',detail:'채점 결과: 오답'});
+assert.equal(submittedFailure.success,true,submittedFailure.error);
+assert.equal(submittedFailure.applied,false);
+assert.equal(submittedFailure.code,'print(11)');
+assert.equal(currentCode,'print(0)','Suggest mode must preserve editor contents');
+const applySubmission=await send({action:'APPLY_SUBMISSION_REVISION',
+  id:submissionId,code:submittedFailure.code});
+assert.equal(applySubmission.applied,true,applySubmission.error);
+assert.equal(currentCode,'print(11)');
+const repeatApply=await send({action:'APPLY_SUBMISSION_REVISION',
+  id:submissionId,code:submittedFailure.code});
+assert.equal(repeatApply.success,false,'Never overwrite an edited editor');
+const cleared=await send({action:'CLEAR_SUBMISSION_SNAPSHOT',id:submissionId});
+assert.equal(cleared.cleared,true);
+assert.equal((await send({action:'GET_PENDING_SUBMISSION'})).pending,null);
+const missingSubmission=await send({action:'REVISE_SUBMISSION_FAILURE',
+  id:submissionId,requestId:submissionId,verdict:'wrong'});
+assert.equal(missingSubmission.success,false,'Stale submission revisions must stop');
+
 assert.ok(!bg.includes('button[aria-label="제출"]'));
 console.log('PASS: OpenAI preview/apply, Gemini replacement, Codex auto mode, no submit, stale check, invalid feedback, retry cap, cancellation');
